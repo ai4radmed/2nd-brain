@@ -1,55 +1,89 @@
 # OpenClaw 게이트웨이 — Docker 컨테이너 설치
 
-[OpenClaw 공식 Docker 설치 문서](https://docs.openclaw.ai/install/docker) 를 따른 절차. 각 명령은 한 줄씩 그대로 복사·붙여넣기 가능.
+[OpenClaw 공식 Docker 설치 문서](https://docs.openclaw.ai/ko/install/docker) 를 참고하여 저자가 설치한 방법을 정리하였습니다.
 
-## 언제 컨테이너를 고르나
+## 왜 도커 설치방법을 선택했는가?
 
-- 호스트를 흔들지 않고 격리 환경에서 OpenClaw 를 띄우고 싶을 때 (데모·테스트)
-- 다중 인스턴스 운영 — 한 머신에서 prod·demo 두 게이트웨이 동시 실행
-- VPS 같은 공유 호스트에서 깔끔한 boundary 가 필요할 때
+- **native 설치에 비해 보안면에서 더 안전** — native 설치 시 OpenClaw 는 호스트 user 권한 그대로 작동해 같은 사용자의 모든 fs·credential·프로세스에 접근 가능합니다. 해킹으로 시스템이 탈취되었다고 가정하면 피해가 크지만, 컨테이너로 띄우면 피해가 컨테이너 boundary로 제한됩니다.
 
-본인 머신에서 영속 운영이 목적이라면 [native 설치](./openclaw-native.md) 가 더 단순.
 
 ## 전제
 
-- Docker Desktop 또는 Docker Engine + Docker Compose v2
-- 이미지 빌드용 RAM 최소 2 GB (1 GB 호스트에서는 `pnpm install` OOM-kill, exit 137)
-- 이미지·로그 저장용 디스크 여유
-
-Docker 미설치 시: [Docker Engine 설치 가이드](https://docs.docker.com/engine/install/) 또는 [Docker Desktop](https://docs.docker.com/desktop/) 참조.
+- **WSL2** - 저자는 Windows 보다 WSL2 를 선호하므로 이하 **WSL2 환경에서 진행** 하였습니다.
+- **Docker Engine + Docker Compose v2** - 컨테이너로 오픈클로를 설치하기 위해 필요합니다. 미설치 시 [Docker Engine 설치 가이드](https://docs.docker.com/engine/install/) 참조하시면 됩니다.
+- **git** - OpenClaw 저장소를 클론하기 위해 필요합니다. 미설치 시 [Git 설치 가이드](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) 참조하시면 됩니다.
+- **클라우드 AI 구독** - 최소 하나 이상의 클라우드 AI 를 구독해야 합니다. 저자는 Anthropic Claude Max, Gemini 구독 중.
 
 ## 1단계 — OpenClaw 저장소 클론
 
 ```bash
-git clone https://github.com/openclaw/openclaw.git ~/openclaw
+git clone https://github.com/openclaw/openclaw.git ~/projects/openclaw-docker
 ```
 
 ```bash
-cd ~/openclaw
+cd ~/projects/openclaw-docker
 ```
 
-## 2단계 — 셋업 스크립트 실행
+## 2단계 — 컨테이너 환경설정 폴더 준비
 
-로컬 이미지 빌드 (기본):
+> 공식 docker.md 에는 이 단계가 없습니다. 저자는 이미 호스트에 native 로 OpenClaw 를 설치해 운영 중이라 (`~/.openclaw/`), `setup.sh` 가 기본값대로 그 디렉토리를 컨테이너에 bind-mount 하면 native 설정·OAuth 토큰·main 에이전트 메모리가 *컨테이너 onboarding 의 결과로 덮어쓰여지거나 컨테이너에서 그대로 사용 가능* 한 상태가 됩니다. 이를 방지하기 위해 컨테이너 전용 환경설정 폴더를 별도로 만듭니다. 컨테이너의 user (`node`, uid 1000) 가 쓸 수 있도록 소유권도 미리 맞춥니다.
+
+```bash
+mkdir -p ~/.openclaw-docker/workspace
+```
+
+```bash
+sudo chown -R 1000:1000 ~/.openclaw-docker
+```
+
+## 3단계 — 셋업 스크립트 실행
+
+미리 빌드된 ghcr 이미지를 사용하고 (로컬 빌드 생략 — 빠르고 RAM 부담 없음), 위 2단계에서 만든 별도 폴더를 마운트하도록 세 환경변수를 **`export`** 한 뒤 `setup.sh` 를 실행합니다. **반드시 `export` 키워드를 붙여야** 다음 줄의 자식 프로세스 (`setup.sh`) 에 전달됩니다 (`export` 없이 `VAR=value` 만 쓰면 현재 셸 변수로만 남고 자식 프로세스에선 못 봅니다).
+
+```bash
+export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:latest"
+```
+
+```bash
+export OPENCLAW_CONFIG_DIR=$HOME/.openclaw-docker
+```
+
+```bash
+export OPENCLAW_WORKSPACE_DIR=$HOME/.openclaw-docker/workspace
+```
 
 ```bash
 ./scripts/docker/setup.sh
 ```
 
-또는 미리 빌드된 ghcr 이미지 사용 (빌드 생략, 빠름):
+전달이 잘 됐다면 setup.sh 가 다음을 자동 수행합니다:
 
-```bash
-OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:latest" ./scripts/docker/setup.sh
-```
-
-`setup.sh` 가 다음을 자동 수행한다:
-
-- 게이트웨이 이미지 빌드 (또는 ghcr 이미지 pull)
-- onboarding 위저드 — 프로바이더 API 키 입력
-- 게이트웨이 토큰 생성 → `.env` 에 기록
+- ghcr 에서 미리 빌드된 게이트웨이 이미지 pull (출력: `Pulling ghcr.io/openclaw/openclaw:latest ...`)
+- onboarding 위저드 — 프로바이더 선택 + API 키 / OAuth 인증
+- 게이트웨이 토큰 생성 → `~/.openclaw-docker/.env` 에 기록
 - `docker compose` 로 게이트웨이 기동
 
-## 3단계 — Control UI 접속
+> ⚠️ **검증 포인트**: setup.sh 출력에 `Reusing gateway token from /home/ben/.openclaw/openclaw.json` 또는 `Building Docker image: openclaw:local` 가 나오면 환경변수가 **전달 안 됐다는 신호** 입니다 (prod `~/.openclaw/` 사용 + 로컬 빌드 모드). 즉시 `Ctrl+C` 로 중단하고 export 부터 다시 시작하세요.
+
+> 로컬 이미지 빌드 (`./scripts/docker/setup.sh` 만 단독 실행, `OPENCLAW_IMAGE` 없이) 는 *OpenClaw contributor 가 소스를 수정한 뒤 그 변경을 빌드해 검증할 때* 만 사용합니다. 일반 사용자·교육 시연에는 ghcr 본이 빠르고 RAM OOM 위험 없습니다.
+
+### 위저드 prompt — "personal-by-default"
+
+setup.sh 의 첫 prompt — *I understand this is personal-by-default and shared/multi-user use requires lock-down. Continue?* — 는 OpenClaw 가 *개인 사용* 을 기본 가정한다는 확인입니다 (gateway 가 `127.0.0.1:18789` 에 personal mode 로 바인드, 추가 격리 없음).
+
+- **혼자 사용하는 컴퓨터** (개인 노트북·데스크탑) → **Y** 또는 **Enter**.
+- **공유 머신** (VPS·강의실 공용 PC·다중 사용자 서버) → 진행 전에 [공식 보안 가이드](https://docs.openclaw.ai/gateway/security) 검토 + onboarding 후 `gateway.bind=loopback` 등 lock-down 설정 필요.
+
+### 위저드 prompt — Setup mode
+
+다음 prompt — *Setup mode: ● QuickStart (recommended) / ○ Manual setup* — 는 셋업 진행 방식 선택입니다.
+
+- **초보자·교육 시연·일반 운영** → **QuickStart**. 합리적 기본값으로 자동 구성, 핵심 prompt (프로바이더 선택·자격증명) 만 묻고 나머지는 default. 빠르게 작동하는 인스턴스 확보 후 필요하면 `openclaw configure` 로 나중에 조정 가능.
+- **고급 사용자·특수 환경** (비표준 포트·custom bind·sandboxing 활성화 등) → Manual setup. 모든 옵션을 명시적으로 선택해야 하므로 prompt 수가 많고 시간 더 걸림.
+
+QuickStart 의 모든 default 는 *사후 변경 가능* 이라 초기 부담이 없습니다.
+
+## 4단계 — Control UI 접속
 
 브라우저에서 `http://127.0.0.1:18789/` 열고, `.env` 의 `OPENCLAW_GATEWAY_TOKEN` 값을 Settings 에 붙여넣기.
 
@@ -59,7 +93,7 @@ OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:latest" ./scripts/docker/setup.sh
 docker compose run --rm openclaw-cli dashboard --no-open
 ```
 
-## 4단계 — 메시징 채널 추가 (선택)
+## 5단계 — 메시징 채널 추가 (선택)
 
 Telegram:
 
@@ -81,7 +115,7 @@ docker compose run --rm openclaw-cli channels add --channel discord --token "<yo
 
 상세: [WhatsApp](https://docs.openclaw.ai/channels/whatsapp) · [Telegram](https://docs.openclaw.ai/channels/telegram) · [Discord](https://docs.openclaw.ai/channels/discord)
 
-## 5단계 — 헬스체크
+## 6단계 — 헬스체크
 
 liveness (인증 불필요):
 
