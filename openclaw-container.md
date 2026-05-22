@@ -1,20 +1,22 @@
-# OpenClaw 게이트웨이 — Docker 컨테이너 설치
+# OpenClaw 게이트웨이 — Docker 컨테이너 설치 (간결판)
 
-[OpenClaw 공식 Docker 설치 문서](https://docs.openclaw.ai/ko/install/docker) 를 참고하여 저자가 설치한 방법을 정리하였습니다.
+> 붙여넣기용 bash 명령 + 최소 이유만. 자세한 배경·트러블슈팅 상세는 추후 보강.
+> 공식 문서: <https://docs.openclaw.ai/install/docker>
 
-## 왜 도커 설치방법을 선택했는가?
-
-- **native 설치에 비해 보안면에서 더 안전** — native 설치 시 OpenClaw 는 호스트 user 권한 그대로 작동해 같은 사용자의 모든 fs·credential·프로세스에 접근 가능합니다. 해킹으로 시스템이 탈취되었다고 가정하면 피해가 크지만, 컨테이너로 띄우면 피해가 컨테이너 boundary로 제한됩니다.
-
+**왜 컨테이너**: native 설치는 호스트 user 권한 그대로라 탈취 시 피해가 크지만, 컨테이너는 피해가 boundary 로 제한됨.
 
 ## 전제
 
-- **WSL2** - 저자는 Windows 보다 WSL2 를 선호하므로 이하 **WSL2 환경에서 진행** 하였습니다.
-- **Docker Engine + Docker Compose v2** - 컨테이너로 오픈클로를 설치하기 위해 필요합니다. 미설치 시 [Docker Engine 설치 가이드](https://docs.docker.com/engine/install/) 참조하시면 됩니다.
-- **git** - OpenClaw 저장소를 클론하기 위해 필요합니다. 미설치 시 [Git 설치 가이드](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) 참조하시면 됩니다.
-- **클라우드 AI 구독** - 최소 하나 이상의 클라우드 AI 를 구독해야 합니다. 저자는 Anthropic Claude Max, Gemini 구독 중.
+- **WSL2** + **Docker Engine + Docker Compose v2** + **git**
+- **클라우드 AI 구독** (저자: Anthropic Claude Max)
+- **Claude Code** (사실상 전제 — skill 워크플로우 + 아래 자격증명 선반입에 사용):
+  ```bash
+  curl -fsSL https://claude.ai/install.sh | bash
+  ```
 
-## 1단계 — OpenClaw 저장소 클론
+---
+
+## 1. 저장소 클론
 
 ```bash
 git clone https://github.com/openclaw/openclaw.git ~/projects/openclaw-docker
@@ -24,9 +26,9 @@ git clone https://github.com/openclaw/openclaw.git ~/projects/openclaw-docker
 cd ~/projects/openclaw-docker
 ```
 
-## 2단계 — 컨테이너 환경설정 폴더 준비
+## 2. 컨테이너 전용 폴더 (native `~/.openclaw` 와 분리)
 
-> 공식 docker.md 에는 이 단계가 없습니다. 저자는 이미 호스트에 native 로 OpenClaw 를 설치해 운영 중이라 (`~/.openclaw/`), `setup.sh` 가 기본값대로 그 디렉토리를 컨테이너에 bind-mount 하면 native 설정·OAuth 토큰·main 에이전트 메모리가 *컨테이너 onboarding 의 결과로 덮어쓰여지거나 컨테이너에서 그대로 사용 가능* 한 상태가 됩니다. 이를 방지하기 위해 컨테이너 전용 환경설정 폴더를 별도로 만듭니다. 컨테이너의 user (`node`, uid 1000) 가 쓸 수 있도록 소유권도 미리 맞춥니다.
+> 별도 폴더라야 native 설정·메모리를 안 건드림. 컨테이너 user `node`(uid 1000) 소유로 맞춤.
 
 ```bash
 mkdir -p ~/.openclaw-docker/workspace ~/.openclaw-docker/.claude
@@ -36,356 +38,323 @@ mkdir -p ~/.openclaw-docker/workspace ~/.openclaw-docker/.claude
 sudo chown -R 1000:1000 ~/.openclaw-docker
 ```
 
-> ⚠️ **`.claude` 디렉토리를 함께 만드는 이유 (Claude OAuth 토큰 영속화)** — 아래 [Claude OAuth 토큰의 영속화](#claude-oauth-토큰의-영속화) 절 참조. OAuth (claude-cli) 방식으로 Anthropic 을 인증한다면, 토큰이 컨테이너의 `/home/node/.claude/.credentials.json` 에 저장되는데 이 경로는 기본 마운트 3곳 (`/home/node/.openclaw`, `/.openclaw/workspace`, `/.config/openclaw`) 어디에도 포함되지 않아 **컨테이너 종료와 함께 휘발**합니다. 특히 onboarding 은 `--rm` 일회성 컨테이너에서 돌기 때문에 인증 직후 토큰이 사라져 게이트웨이가 미인증 상태로 뜨는 오류가 발생합니다. 이를 막으려고 호스트에 `.claude` 폴더를 미리 만들고 3단계에서 마운트합니다.
+## 3. Claude 자격증명 선반입 (OAuth 방식 — setup 전 필수)
 
-> ⚠️ **(OAuth 방식) Claude CLI 자격증명 선반입 — 저자 실측으로 추가**: onboarding 의 "Anthropic Claude CLI" 인증 방식은 컨테이너 안에서 OAuth 플로우를 *새로 띄우지 않고*, 이미 인증된 Claude CLI 자격증명을 **재사용**합니다. 그래서 바인드된 `.claude` 폴더가 비어 있으면 다음 에러로 중단됩니다:
->
-> ```
-> Error: Claude CLI is not authenticated on this host.
-> Run claude auth login first, then re-run this setup.
-> ```
->
-> 따라서 3단계(setup.sh) 실행 전에, 컨테이너가 볼 위치(`~/.openclaw-docker/.claude/`)에 자격증명을 미리 넣어야 합니다.
->
-> > 📌 **왜 파일이 아니라 디렉토리를 마운트하나 (atomicity)**: `.credentials.json` 은 access token 이 수 시간마다 만료될 때 refresh token 으로 **재기록**됩니다 (실측: `expiresAt` 약 8시간). Claude 는 이를 *임시파일 작성 → rename* 으로 원자적 교체하는데, **단일 파일** bind mount 는 rename 으로 inode 가 바뀌면 호스트↔컨테이너가 desync 됩니다. 그래서 항상 **`.claude` *디렉토리* 를 마운트**합니다 (이 문서의 `OPENCLAW_EXTRA_MOUNTS` 가 이미 디렉토리 마운트라 안전).
->
-> 자격증명을 넣는 방법은 두 가지입니다:
->
-> **① 컨테이너 전용 OAuth 로그인 — native 와 *지속 병행* 시 권장.** 컨테이너가 호스트와 **독립된 refresh token lineage** 를 갖게 해, 한쪽의 토큰 갱신이 다른 쪽을 무효화하지 않습니다. `.claude` 폴더를 마운트한 일회성 컨테이너에서 번들 Claude CLI 로 로그인합니다 (바이너리·`auth login` 서브커맨드는 이미지에 존재함을 저자 확인):
->
-> ```bash
-> docker run --rm -it -u node \
->   -v ~/.openclaw-docker/.claude:/home/node/.claude \
->   --entrypoint /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude \
->   ghcr.io/openclaw/openclaw:latest auth login
-> ```
->
-> 출력된 URL 을 브라우저에서 열어 승인하고 코드를 터미널에 붙여넣으면, **독립 자격증명**이 `~/.openclaw-docker/.claude/.credentials.json` 에 기록됩니다. 확인:
->
-> ```bash
-> docker run --rm -u node -v ~/.openclaw-docker/.claude:/home/node/.claude \
->   --entrypoint /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude \
->   ghcr.io/openclaw/openclaw:latest auth status   # loggedIn: true 면 OK
-> ```
->
-> **② native 토큰 복사 — *일회용 테스트* 한정.** 빠르지만 native 와 **같은 refresh token lineage** 를 공유합니다:
->
-> ```bash
-> cp ~/.claude/.credentials.json ~/.openclaw-docker/.claude/
-> sudo chown 1000:1000 ~/.openclaw-docker/.claude/.credentials.json
-> ```
->
-> ⚠️ Anthropic 이 refresh token 회전(사용 시 옛 토큰 무효화)을 쓴다면, 컨테이너가 처음 토큰을 갱신하는 순간(보통 수 시간 내) **호스트 native Claude Code 가 `invalid_grant` 으로 로그아웃**될 수 있습니다. 그래서 곧 버릴 테스트에만 쓰고, **지속 병행에는 ①** 을 쓰세요.
->
-> (onboarding 에서 **API 키 방식**을 고르면 이 선반입 자체가 불필요합니다 — 아래 [Anthropic 인증 방식](#anthropic-인증-방식--oauth-권장) 절. 호스트 `~/.claude` 디렉토리를 통째로 마운트하는 대안도 분기 문제는 없으나 컨테이너 격리를 약화시켜 비권장입니다.)
+> onboarding 은 *기존* claude 자격증명을 재사용하므로, 미리 없으면 `Claude CLI is not authenticated` 로 중단됨. 호스트 `~/.claude` 와 **독립 lineage** 가 되도록 별도 로그인(복사 X — 회전 시 호스트가 로그아웃됨). *API 키 방식이면 이 단계 생략.*
 
-## 3단계 — 셋업 스크립트 실행
+호스트에 Claude Code 가 있으면 (간단):
 
-미리 빌드된 ghcr 이미지를 사용하고 (로컬 빌드 생략 — 빠르고 RAM 부담 없음), 위 2단계에서 만든 별도 폴더를 마운트하도록 아래 환경변수를 **`export`** 한 뒤 `setup.sh` 를 실행합니다 (native 와 병행 설치라면 포트 재지정 변수도 함께 — 이 블록 맨 아래). **반드시 `export` 키워드를 붙여야** 다음 줄의 자식 프로세스 (`setup.sh`) 에 전달됩니다 (`export` 없이 `VAR=value` 만 쓰면 현재 셸 변수로만 남고 자식 프로세스에선 못 봅니다).
+```bash
+CLAUDE_CONFIG_DIR="$HOME/.openclaw-docker/.claude" claude auth login
+```
+
+없으면 (컨테이너 번들로):
+
+```bash
+docker run --rm -it -u node -v ~/.openclaw-docker/.claude:/home/node/.claude \
+  --entrypoint /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude \
+  ghcr.io/openclaw/openclaw:latest auth login
+```
+
+확인 (파일 생기면 OK):
+
+```bash
+ls -l ~/.openclaw-docker/.claude/.credentials.json
+```
+
+## 4. 환경변수 export + 셋업 실행
+
+> `setup.sh` 는 `.env` 가 아니라 **셸 환경변수**를 봄 → 반드시 `export`. (`.claude` 마운트가 토큰을 영속화.)
 
 ```bash
 export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:latest"
-```
-
-```bash
 export OPENCLAW_CONFIG_DIR=$HOME/.openclaw-docker
-```
-
-```bash
 export OPENCLAW_WORKSPACE_DIR=$HOME/.openclaw-docker/workspace
-```
-
-```bash
 export OPENCLAW_EXTRA_MOUNTS="$HOME/.openclaw-docker/.claude:/home/node/.claude"
 ```
 
-> 이 네 번째 변수가 Claude OAuth 토큰을 호스트에 영속화합니다 (위 2단계 ⚠️ + 아래 [Claude OAuth 토큰의 영속화](#claude-oauth-토큰의-영속화) 절). `setup.sh` 는 `OPENCLAW_EXTRA_MOUNTS` (형식 `source:target`) 를 받아 compose 오버레이로 추가 마운트를 생성합니다. **API 키 방식만 쓸 경우엔 이 변수가 불필요** 하지만, 저자는 요금제 이유로 OAuth 를 권장하므로 (아래 절) 기본 포함합니다.
-
-**(선택) native OpenClaw 와 같은 머신에 병행 설치하는 경우** — native 게이트웨이가 이미 `18789` 를 점유 중이므로, 호스트 포트를 재지정하는 다섯 번째 변수도 **setup.sh 실행 전에** 함께 export 합니다:
+native 와 **병행 설치**면 포트도 재지정 (기본 설치는 생략):
 
 ```bash
-export OPENCLAW_GATEWAY_PORT=18889   # 호스트 18889 → 컨테이너 18789 (병행 설치 시에만)
+export OPENCLAW_GATEWAY_PORT=18889   # 호스트 18889→컨테이너 18789
+export OPENCLAW_BRIDGE_PORT=18990    # 기본 18790 충돌 방지
 ```
-
-> `setup.sh` 의 마지막 단계가 게이트웨이를 이 포트로 기동하므로, **미리 설정하지 않으면 그 단계가 `address already in use` 로 실패**합니다 (저자 실측 — 아래 [트러블슈팅](#포트-18789-이미-사용-중-native-openclaw-와-병행-시--저자-실측) 참조). native 가 없는 일반 설치(외부 사용자 대다수)는 기본 `18789` 로 충분하니 이 변수는 생략합니다.
 
 ```bash
 ./scripts/docker/setup.sh
 ```
 
-전달이 잘 됐다면 setup.sh 가 다음을 자동 수행합니다:
+위저드: *personal-by-default* → **Y**, *Setup mode* → **QuickStart**, *Provider* → **Anthropic OAuth (claude-cli)**.
 
-- ghcr 에서 미리 빌드된 게이트웨이 이미지 pull (출력: `Pulling ghcr.io/openclaw/openclaw:latest ...`)
-- onboarding 위저드 — 프로바이더 선택 + API 키 / OAuth 인증
-- 게이트웨이 토큰 생성 → `~/.openclaw-docker/.env` 에 기록
-- `docker compose` 로 게이트웨이 기동
+> ⚠️ 출력에 `Config: /home/<you>/.openclaw-docker` 가 보여야 정상. `~/.openclaw`(native) 나 `Building ... openclaw:local` 이 보이면 env 미전달 → `Ctrl+C` 후 4단계부터 다시.
 
-> ⚠️ **검증 포인트**: setup.sh 출력에 `Reusing gateway token from /home/ben/.openclaw/openclaw.json` 또는 `Building Docker image: openclaw:local` 가 나오면 환경변수가 **전달 안 됐다는 신호** 입니다 (prod `~/.openclaw/` 사용 + 로컬 빌드 모드). 즉시 `Ctrl+C` 로 중단하고 export 부터 다시 시작하세요.
+## 5. PATH fix — 번들 claude 를 PATH 에 노출 (★필수)
 
-> 로컬 이미지 빌드 (`./scripts/docker/setup.sh` 만 단독 실행, `OPENCLAW_IMAGE` 없이) 는 *OpenClaw contributor 가 소스를 수정한 뒤 그 변경을 빌드해 검증할 때* 만 사용합니다. 일반 사용자·교육 시연에는 ghcr 본이 빠르고 RAM OOM 위험 없습니다.
+> **이거 안 하면 모든 채널 메시지가 `Something went wrong` 으로 실패한다.** 이미지의 claude 가 PATH 에 없어 openclaw 가 bare `claude` 를 spawn 할 때 ENOENT→EPIPE. SDK 경로를 PATH 앞에 붙여 해결. (`.claude` 마운트도 같은 파일에 둠.)
 
-### 위저드 prompt — "personal-by-default"
-
-setup.sh 의 첫 prompt — *I understand this is personal-by-default and shared/multi-user use requires lock-down. Continue?* — 는 OpenClaw 가 *개인 사용* 을 기본 가정한다는 확인입니다 (gateway 가 `127.0.0.1:18789` 에 personal mode 로 바인드, 추가 격리 없음).
-
-- **혼자 사용하는 컴퓨터** (개인 노트북·데스크탑) → **Y** 또는 **Enter**.
-- **공유 머신** (VPS·강의실 공용 PC·다중 사용자 서버) → 진행 전에 [공식 보안 가이드](https://docs.openclaw.ai/gateway/security) 검토 + onboarding 후 `gateway.bind=loopback` 등 lock-down 설정 필요.
-
-### 위저드 prompt — Setup mode
-
-다음 prompt — *Setup mode: ● QuickStart (recommended) / ○ Manual setup* — 는 셋업 진행 방식 선택입니다.
-
-- **초보자·교육 시연·일반 운영** → **QuickStart**. 합리적 기본값으로 자동 구성, 핵심 prompt (프로바이더 선택·자격증명) 만 묻고 나머지는 default. 빠르게 작동하는 인스턴스 확보 후 필요하면 `openclaw configure` 로 나중에 조정 가능.
-- **고급 사용자·특수 환경** (비표준 포트·custom bind·sandboxing 활성화 등) → Manual setup. 모든 옵션을 명시적으로 선택해야 하므로 prompt 수가 많고 시간 더 걸림.
-
-QuickStart 의 모든 default 는 *사후 변경 가능* 이라 초기 부담이 없습니다.
-
-## 4단계 — Control UI 접속
-
-브라우저에서 `http://127.0.0.1:18789/` 열고, `.env` 의 `OPENCLAW_GATEWAY_TOKEN` 값을 Settings 에 붙여넣기.
-
-대시보드 URL 을 다시 받으려면:
+setup.sh 가 만든 `docker-compose.extra.yml` 을 PATH 포함본으로 덮어씀:
 
 ```bash
-docker compose run --rm openclaw-cli dashboard --no-open
+cat > ~/projects/openclaw-docker/docker-compose.extra.yml <<EOF
+services:
+  openclaw-gateway:
+    volumes:
+      - $HOME/.openclaw-docker/.claude:/home/node/.claude
+    environment:
+      - PATH=/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  openclaw-cli:
+    volumes:
+      - $HOME/.openclaw-docker/.claude:/home/node/.claude
+    environment:
+      - PATH=/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EOF
 ```
 
-## 5단계 — 메시징 채널 추가 (선택)
-
-Telegram:
+재생성 + 확인:
 
 ```bash
-docker compose run --rm openclaw-cli channels add --channel telegram --token "<your-bot-token>"
-```
-
-WhatsApp (QR):
-
-```bash
-docker compose run --rm openclaw-cli channels login
-```
-
-Discord:
-
-```bash
-docker compose run --rm openclaw-cli channels add --channel discord --token "<your-bot-token>"
-```
-
-상세: [WhatsApp](https://docs.openclaw.ai/channels/whatsapp) · [Telegram](https://docs.openclaw.ai/channels/telegram) · [Discord](https://docs.openclaw.ai/channels/discord)
-
-## 6단계 — 헬스체크
-
-liveness (인증 불필요):
-
-```bash
-curl -fsS http://127.0.0.1:18789/healthz
-```
-
-readiness (인증 불필요):
-
-```bash
-curl -fsS http://127.0.0.1:18789/readyz
-```
-
-상세 헬스 (게이트웨이 토큰 필요):
-
-```bash
-docker compose exec openclaw-gateway node dist/index.js health --token "$OPENCLAW_GATEWAY_TOKEN"
-```
-
-## 정지·재기동·로그
-
-정지:
-
-```bash
-docker compose down
-```
-
-재기동:
-
-```bash
-docker compose up -d openclaw-gateway
-```
-
-로그 추적:
-
-```bash
-docker compose logs -f openclaw-gateway
-```
-
-## 영속성
-
-Docker Compose 가 다음 경로를 bind-mount 한다 — 컨테이너 교체 후에도 유지. 호스트 측 경로는 3단계에서 `export` 한 환경변수로 결정됩니다 (이 문서에선 `~/.openclaw-docker/...`):
-
-- `${OPENCLAW_CONFIG_DIR}` → `/home/node/.openclaw` (config·agents·cron·credentials)
-- `${OPENCLAW_WORKSPACE_DIR}` → `/home/node/.openclaw/workspace`
-- `${OPENCLAW_AUTH_PROFILE_SECRET_DIR:-${HOME}/.openclaw-auth-profile-secrets}` → `/home/node/.config/openclaw` (auth profile secret — API 키 등)
-- `${OPENCLAW_EXTRA_MOUNTS}` 로 지정한 추가 경로 (이 문서: `~/.openclaw-docker/.claude` → `/home/node/.claude`, Claude OAuth 토큰)
-
-> 환경변수를 `export` 하지 않으면 compose 가 기본값인 `${HOME}/.openclaw` 로 fallback 합니다 — 이 문서처럼 native 와 병행 설치하는 경우엔 반드시 3단계의 `export` 가 선행되어야 native 설정을 덮어쓰지 않습니다.
-
-> ⚠️ **이 변수들은 *모든* `docker compose` 명령에 살아 있어야 합니다 (저자 실측).** 한 번이라도 빠진 셸에서 `up`·`run`·`down` 등을 돌리면 compose 가 기본값(포트 18789·`openclaw:local`·native `~/.openclaw`)으로 컨테이너를 **recreate** 하다 충돌나며, 돌고 있던 컨테이너까지 망가뜨립니다.
->
-> **`.env` 의 한계 — `setup.sh` 는 못 덮습니다.** 이 문서가 `export` 방식을 쓰는 이유가 여기 있습니다. 소비자가 둘이고 변수를 읽는 방식이 다릅니다:
->
-> - **`setup.sh`** (3단계) — bash 스크립트라 compose `.env` 를 **읽지 않고** 셸 환경변수를 직접 봅니다. 따라서 반드시 `export`(또는 `set -a; source ...; set +a`)가 선행돼야 합니다. `.env` 만 두고 export 를 생략하면 setup.sh 는 기본값(native `~/.openclaw`)으로 동작합니다.
-> - **`docker compose`** (설치 *후* 반복되는 `up`·`down`·`run`·`logs`) — 프로젝트 디렉토리(`~/projects/openclaw-docker/`)의 `.env` 를 **자동으로** 읽습니다. 여기 변수를 적어두면 셸과 무관하게 적용돼 위 recreate 사고가 차단됩니다.
->
-> 즉 `.env` 는 export 를 **대체하지 못하고**, *설치 후 운영* 단계만 보완합니다. (`.env` 엔 setup.sh 가 `OPENCLAW_GATEWAY_TOKEN` 을 기록하므로 경로/포트 변수만 추가하고, compose `.env` 안에서는 `$HOME` 이 확장되지 않으니 절대경로로 적습니다.)
-
-플러그인 런타임 의존성은 별도 named volume `openclaw-plugin-runtime-deps` 에 저장 (호스트 bind mount 와 분리해 Docker Desktop / WSL 파일 I/O 마찰 회피).
-
-## 트러블슈팅
-
-### 이미지 빌드 중 OOM (exit 137)
-
-RAM 2 GB 이상 필요. 더 큰 머신에서 재시도.
-
-### `EACCES` (`/home/node/.openclaw` 권한 오류)
-
-이미지가 uid 1000 (`node`) 으로 실행되므로 호스트 bind mount 가 uid 1000 소유여야 함 (이 문서의 컨테이너 전용 폴더 기준):
-
-```bash
-sudo chown -R 1000:1000 ~/.openclaw-docker
-```
-
-### Control UI 인증 실패 (Unauthorized / pairing required)
-
-```bash
-docker compose run --rm openclaw-cli dashboard --no-open
-```
-
-```bash
-docker compose run --rm openclaw-cli devices list
-```
-
-```bash
-docker compose run --rm openclaw-cli devices approve <requestId>
-```
-
-### 게이트웨이 target 이 `ws://172.x.x.x` 로 잡혀 페어링 실패
-
-mode·bind 재설정:
-
-```bash
-docker compose run --rm openclaw-cli config set --batch-json '[{"path":"gateway.mode","value":"local"},{"path":"gateway.bind","value":"lan"}]'
-```
-
-### 포트 18789 이미 사용 중 (native OpenClaw 와 병행 시) — 저자 실측
-
-호스트에 native OpenClaw 게이트웨이가 이미 18789 를 점유 중이면 컨테이너 기동이 `failed to bind host port 0.0.0.0:18789/tcp: address already in use` 로 실패합니다 (컨테이너가 Running 에 못 가고 `Created` 에 고착). compose 는 호스트 포트를 환경변수로 재지정할 수 있으니, 컨테이너만 다른 포트에 띄워 **공존**시킵니다 (브리지 18790 은 보통 비어 있어 그대로):
-
-```bash
-export OPENCLAW_GATEWAY_PORT=18889   # 호스트 18889 → 컨테이너 18789
-docker compose -f docker-compose.yml -f docker-compose.extra.yml up -d openclaw-gateway
-```
-
-이후 Control UI·헬스체크도 새 포트(`http://127.0.0.1:18889/`)로 접근합니다. 이 변수는 위 ⚠️ 처럼 **모든 compose 명령에 동일하게** 주어야 합니다.
-
-### Control UI: "브라우저 origin이 허용되지 않음"
-
-포트를 재지정하면(예: 18889) 위저드가 핀해둔 `allowedOrigins`(18789)와 접속 origin(18889)이 어긋나 거부됩니다. 게이트웨이 config 의 `gateway.controlUi.allowedOrigins` 에 새 origin 을 추가하고 재시작합니다. `config set --batch-json` 은 따옴표·대괄호가 많아 멀티라인 붙여넣기에 잘 깨지므로, **config 파일을 직접 편집하는 쪽이 안전**합니다. 호스트의 `~/.openclaw-docker/openclaw.json` 에서:
-
-```json
-"allowedOrigins": [
-  "http://localhost:18789",
-  "http://127.0.0.1:18789",
-  "http://localhost:18889",
-  "http://127.0.0.1:18889"
-]
-```
-
-저장 후 게이트웨이 재시작:
-
-```bash
+cd ~/projects/openclaw-docker
 docker compose -f docker-compose.yml -f docker-compose.extra.yml up -d --force-recreate openclaw-gateway
 ```
 
-### Control UI: "연결할 수 없음" / "device signature expired" / "pairing required" — 저자 실측
-
-origin·토큰을 통과해도 Control UI 가 연결을 못 맺으면, 게이트웨이 로그에서 사유를 확인합니다:
-
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.extra.yml logs --tail=20 openclaw-gateway | grep '\[ws\]'
+GW=$(docker ps --filter name=openclaw-gateway --format '{{.Names}}' | head -1)
+docker exec "$GW" claude --version   # 2.1.x (Claude Code) 면 OK
 ```
 
-- `reason=token_missing` → 토큰 미입력. 토큰 박힌 URL(`http://127.0.0.1:<port>/#token=<TOKEN>`)로 열거나 입력칸에 붙여넣습니다. 토큰은 `~/projects/openclaw-docker/.env` 의 `OPENCLAW_GATEWAY_TOKEN`.
-- `reason=pairing required: device is not approved yet (requestId: ...)` → 브라우저 device 가 승인 대기 상태입니다. 아래로 승인합니다:
+## 6. 텔레그램 봇 추가 (초기 설정에서 함께)
 
-  ```bash
-  docker compose -f docker-compose.yml -f docker-compose.extra.yml run --rm openclaw-cli devices list
-  docker compose -f docker-compose.yml -f docker-compose.extra.yml run --rm openclaw-cli devices approve <requestId>
-  ```
+> 봇 토큰은 대시보드가 아니라 CLI 로 등록. 포트 함정 회피 위해 게이트웨이 컨테이너 안에서 내부 포트(18789)로 실행.
 
-  승인 후 브라우저는 ~15초마다 자동 재시도하므로 곧 연결됩니다(또는 Connect 재클릭).
-- `reason=device signature expired` (시크릿 창에서도 반복) → 브라우저 호스트(예: Windows) 와 게이트웨이(WSL/컨테이너) 의 **시계 차이**가 서명 유효시간 검증을 깨는 경우입니다. 컨테이너=WSL 시각(`docker exec <gateway> date -u` vs `date -u`)이 맞는데도 나면 브라우저 호스트 시계를 동기합니다.
-
-> 반복 테스트 시엔 일반 창의 캐시된 옛 device 서명이 꼬일 수 있으니, **시크릿 창**으로 토큰 URL 을 여는 것을 표준 절차로 삼으면 깔끔합니다.
-
-더 자세한 내용은 [OpenClaw Docker 공식 문서](https://docs.openclaw.ai/install/docker) 참조.
-
-## 컨테이너에서 호스트 LLM 사용 (Ollama · LM Studio)
-
-컨테이너 안의 `127.0.0.1` 은 컨테이너 자신이라, 호스트에서 도는 Ollama / LM Studio 에 닿으려면 `host.docker.internal` 을 써야 한다.
-
-호스트 측 서버를 외부 바인드로 띄우기:
+@BotFather 에서 `/newbot` 으로 토큰 발급 후:
 
 ```bash
-OLLAMA_HOST=0.0.0.0:11434 ollama serve
+GW=$(docker ps --filter name=openclaw-gateway --format '{{.Names}}' | head -1)
+docker exec -e OPENCLAW_GATEWAY_PORT=18789 "$GW" \
+  node dist/index.js channels add --channel telegram --token "<봇토큰>"
+```
+
+텔레그램에서 봇에게 메시지를 보내면 `access not configured` + **pairing code** 가 옴. 그 코드로 승인:
+
+```bash
+docker exec -e OPENCLAW_GATEWAY_PORT=18789 "$GW" \
+  node dist/index.js pairing approve telegram <PAIRING_CODE>
+```
+
+이후 봇에 다시 메시지 → 정상 응답.
+
+## 7. Control UI 접속
+
+브라우저에서 `http://127.0.0.1:18789/`(병행 설치면 `:18889`) 열고 `.env` 의 `OPENCLAW_GATEWAY_TOKEN` 붙여넣기. 토큰 박힌 URL 재발급:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.extra.yml run --rm openclaw-cli dashboard --no-open
+```
+
+브라우저도 device 페어링이 필요하면 `access not configured` 대신 requestId 가 뜸 → `... devices approve <requestId>` (exec 방식, 6단계와 동일).
+
+## 8. 운영
+
+```bash
+curl -fsS http://127.0.0.1:18789/healthz      # 병행이면 :18889
 ```
 
 ```bash
-lms server start --port 1234 --bind 0.0.0.0
+cd ~/projects/openclaw-docker
+docker compose -f docker-compose.yml -f docker-compose.extra.yml logs -f openclaw-gateway   # 로그
+docker compose -f docker-compose.yml -f docker-compose.extra.yml down                        # 정지
+docker compose -f docker-compose.yml -f docker-compose.extra.yml up -d openclaw-gateway       # 재기동
 ```
 
-OpenClaw onboarding 에서 URL 입력 시:
+> ⚠️ **모든 `docker compose` 명령에 `-f docker-compose.yml -f docker-compose.extra.yml` 를 항상 함께** 줄 것 (extra.yml = PATH fix + .claude 마운트). 빠지면 기본값으로 recreate 되며 깨짐.
 
-- Ollama: `http://host.docker.internal:11434`
-- LM Studio: `http://host.docker.internal:1234`
+---
 
-## Anthropic 인증 방식 — OAuth 권장
+## (선택) 응답 속도·비용 튜닝
 
-OpenClaw 에서 Anthropic (Claude) 을 인증하는 방식은 두 가지입니다.
-
-- **OAuth (claude-cli) — 권장.** onboarding 에서 OAuth 를 선택하면 컨테이너 안에 번들된 Claude Code (`/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude`) 의 자격증명을 사용합니다. **Claude Max / Pro 등 구독 요금제의 사용량 한도 안에서 동작** 하므로, 토큰 단위 종량 과금되는 API 키보다 비용이 예측 가능합니다.
-  > ⚠️ **실측 정정 (2026-05-22)**: 최근 ghcr 빌드의 "Anthropic Claude CLI" 방식은 컨테이너 안에서 OAuth 플로우를 *새로 띄우지 않고*, 이미 인증된 Claude CLI 자격증명을 **재사용**합니다. 그래서 바인드 폴더에 토큰이 없으면 `Claude CLI is not authenticated on this host` 로 중단됩니다. → 2단계의 **자격증명 선반입**이 필요합니다.
-- **API 키 — 비권장.** `ANTHROPIC_API_KEY` 또는 auth-profile secret 으로 등록. 종량 과금이라 같은 작업량이라도 구독 요금제 대비 비용이 커질 수 있어, 저자는 일반 운영에서 권장하지 않습니다. (단, API 키 방식은 secret 이 마운트된 `/home/node/.config/openclaw` 에 저장돼 영속화가 자동이므로 아래 `.claude` 마운트가 불필요하다는 *설치 편의상의* 장점은 있습니다.)
-
-> 요금제 비용 때문에 OAuth 를 기본 권장합니다. 그래서 이 문서의 2·3단계는 OAuth 토큰 영속화를 위한 `.claude` 폴더 준비·마운트를 기본 포함합니다.
-
-## Claude OAuth 토큰의 영속화
-
-OAuth 방식을 쓸 때 반드시 알아야 할 함정입니다 (저자가 실측으로 확인).
-
-> 현재 ghcr 빌드는 onboarding 이 OAuth 플로우를 *새로 띄우지 않고* 사전 인증된 토큰을 **재사용**합니다. 따라서 자격증명을 *어떻게 마련·선반입할지* 는 2단계의 ①(컨테이너 전용 로그인, 지속 병행 권장)·②(복사, 테스트 한정)를 따릅니다. 아래는 그 자격증명을 *어디에 둬야 살아남는가* — 영속화 마운트 — 의 근거입니다 (선반입 방법과 무관하게 공통).
-
-**문제** — 컨테이너 HOME 은 `/home/node` 이고, Claude OAuth 토큰은 `/home/node/.claude/.credentials.json` 에 저장됩니다. 그런데 `setup.sh` 가 기본으로 마운트하는 경로는 다음 3곳뿐입니다:
-
-- `/home/node/.openclaw` (config·agents·cron)
-- `/home/node/.openclaw/workspace`
-- `/home/node/.config/openclaw` (auth profile secret)
-
-`/home/node/.claude` 는 **어디에도 포함되지 않습니다.** 게다가 onboarding 은 `setup.sh` 안에서 `docker compose run --rm` 으로 도는 **일회성 컨테이너** 입니다. 따라서 OAuth 인증을 마쳐도:
-
-1. 토큰이 일회성 컨테이너의 `/home/node/.claude/` (마운트 안 됨) 에 기록되고
-2. onboarding 컨테이너가 `--rm` 으로 종료되며 토큰이 **삭제**되고
-3. 이어서 `up -d` 로 뜨는 실제 게이트웨이는 토큰이 없어 **미인증/오류** 상태가 됩니다.
-
-**해결** — 호스트에 `.claude` 폴더를 미리 만들고 (2단계), `OPENCLAW_EXTRA_MOUNTS` 로 컨테이너의 `/home/node/.claude` 에 마운트합니다 (3단계). 이러면 토큰이 호스트 `~/.openclaw-docker/.claude/.credentials.json` 에 영속화돼 `--rm` onboarding·컨테이너 재기동에도 살아남습니다.
+> opus + thinking + 누적 컨텍스트가 무거우면 첫 출력까지 180s 를 넘겨 watchdog 이 죽임(`no-output stall`). 데모·경량 용도면 가벼운 모델 + 하트비트 off 로 3~10초대.
 
 ```bash
-# 2단계에서 폴더 생성 + 소유권
-mkdir -p ~/.openclaw-docker/.claude && sudo chown -R 1000:1000 ~/.openclaw-docker
-
-# 3단계에서 마운트 변수 export
-export OPENCLAW_EXTRA_MOUNTS="$HOME/.openclaw-docker/.claude:/home/node/.claude"
+python3 - <<'PY'
+import json, pathlib
+f = pathlib.Path.home()/".openclaw-docker/openclaw.json"
+d = json.loads(f.read_text())
+d["agents"]["defaults"]["model"]["primary"] = "anthropic/claude-sonnet-4-6"  # 또는 haiku-4-5
+d["agents"]["defaults"]["heartbeat"] = {"every": "0m"}                       # 하트비트 끔
+f.write_text(json.dumps(d, indent=2, ensure_ascii=False)); print("ok")
+PY
 ```
 
-> **lineage 선택 (지속 병행 핵심)**: native 와 컨테이너를 *동시에 계속* 돌릴 거면, 컨테이너가 호스트와 **독립된 refresh token lineage** 를 갖는 2단계 ①(컨테이너 안 `auth login`)이 정답입니다. refresh token 회전 시 한쪽 갱신이 다른 쪽을 무효화(`invalid_grant`)하는 사고를 원천 차단합니다.
->
-> - **단순 복사(②)** — native 와 *같은 lineage* 공유. 회전 시 호스트 native Claude 가 로그아웃될 수 있어 **일회용 테스트 한정**.
-> - **호스트 `~/.claude` 디렉토리 통째 마운트** (`OPENCLAW_EXTRA_MOUNTS="$HOME/.claude:/home/node/.claude"`) — 단일 저장소를 공유해 분기·회전 문제는 없지만, (1) 컨테이너 격리(이 문서가 내세운 보안 이점)를 약화시키고 (2) 호스트 user 와 컨테이너 user(node, uid 1000) 의 소유권 마찰이 있어 **비권장**.
+적용: 5단계의 `--force-recreate` 재생성. 로그에 `agent model: ...sonnet-4-6` + `[heartbeat] disabled` 확인.
+
+---
+
+## (선택) gog 붙이기 — Google Workspace (Gmail·Calendar·Tasks)
+
+gog 스킬은 번들돼 있지만 **gog 바이너리·인증이 따로 필요**합니다(대시보드 활성화는 brew 설치라 컨테이너에선 실패). gog 는 **정적 단일 바이너리**라 browser 와 달리 시스템 deps 없이 됩니다.
+
+> ⚠️ **반드시 한 단계씩, 각 STEP 의 _검증_ 이 통과한 뒤 다음으로.** 한꺼번에 바꾸면 실패 시 원인 추적이 불가능합니다(저자 실측 교훈 — browser 설정에서 겪음).
+
+**전제 (gog 자체 인증)**: 호스트에 gog 가 설치되어 있고, **컨테이너 전용 OAuth 클라이언트**로 인증된 격리 config 디렉토리가 있어야 합니다. gog 설치·Google OAuth(GCP 프로젝트/클라이언트) 는 <https://gogcli.sh> 참조. native gog 와 **병행**하려면 별도 `--client` 로 인증해 토큰을 분리하세요:
+> ```bash
+> gog auth credentials set <client_secret.json> --client openclaw-container
+> gog auth add <account@gmail.com> --client openclaw-container   # 브라우저 OAuth (대화형)
+> ```
+> 결과 config 디렉토리: `~/.config/gogcli-openclaw-container/`, keyring 암호: 안전한 곳에 보관(아래 `GOG_KEYRING_PASSWORD`).
+
+---
+
+### STEP 1 — gog 바이너리를 마운트 경로에 복사
+`~/.openclaw-docker` 는 컨테이너의 `/home/node/.openclaw` 로 마운트되므로, 그 아래 `bin/` 에 두면 컨테이너에서 보입니다.
+```bash
+mkdir -p ~/.openclaw-docker/bin
+cp "$(command -v gog)" ~/.openclaw-docker/bin/gog && chmod +x ~/.openclaw-docker/bin/gog
+```
+**✅ 검증** (정적 바이너리 + 호스트에 존재):
+```bash
+file ~/.openclaw-docker/bin/gog   # "statically linked" 포함해야 함
+```
+
+### STEP 2 — 인증이 살아있는지 *먼저* 확인 (컨테이너 건드리기 전)
+gog 는 `~/.config/gogcli` 를 읽으므로, HOME 을 임시로 격리 dir 로 돌려 격리 config 의 인증만 점검합니다(호스트 메인 gog 무손상):
+```bash
+T=$(mktemp -d); mkdir -p "$T/.config"; ln -s ~/.config/gogcli-openclaw-container "$T/.config/gogcli"
+HOME="$T" GOG_KEYRING_PASSWORD='<keyring-암호>' gog auth list --client openclaw-container; rm -rf "$T"
+```
+**✅ 검증**: 계정(`<account@gmail.com>`)이 목록에 나오면 인증 정상.
+**❌ 실패 시**(키링 복호화 오류·빈 목록): 컨테이너로 가기 전에 먼저 `gog auth add … --client openclaw-container` 로 **재인증**(별도 client 라 호스트 메인 무손상). 여기서 막히면 다음 STEP 으로 가지 마세요.
+
+### STEP 3 — 키링 암호를 `.env` 에 + extra.yml 에 마운트·PATH·env 추가
+```bash
+echo "GOG_KEYRING_PASSWORD=<keyring-암호>" >> ~/projects/openclaw-docker/.env
+```
+`docker-compose.extra.yml` 을 **gog 추가본**으로 덮어씁니다(기존 claude PATH-fix 포함):
+```bash
+cat > ~/projects/openclaw-docker/docker-compose.extra.yml <<EOF
+services:
+  openclaw-gateway:
+    volumes:
+      - $HOME/.openclaw-docker/.claude:/home/node/.claude
+      - $HOME/.config/gogcli-openclaw-container:/home/node/.config/gogcli
+    environment:
+      - PATH=/home/node/.openclaw/bin:/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - GOG_KEYRING_PASSWORD=\${GOG_KEYRING_PASSWORD}
+  openclaw-cli:
+    volumes:
+      - $HOME/.openclaw-docker/.claude:/home/node/.claude
+      - $HOME/.config/gogcli-openclaw-container:/home/node/.config/gogcli
+    environment:
+      - PATH=/home/node/.openclaw/bin:/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - GOG_KEYRING_PASSWORD=\${GOG_KEYRING_PASSWORD}
+EOF
+```
+재생성:
+```bash
+cd ~/projects/openclaw-docker
+docker compose -f docker-compose.yml -f docker-compose.extra.yml up -d --force-recreate openclaw-gateway
+```
+**✅ 검증** (바이너리·config·env 가 컨테이너에 도달):
+```bash
+GW=$(docker ps --filter name=openclaw-gateway --format '{{.Names}}' | head -1)
+docker exec "$GW" which gog          # /home/node/.openclaw/bin/gog
+docker exec "$GW" gog --version      # v0.13.0 (rc=0)
+docker exec "$GW" ls /home/node/.config/gogcli   # client_secret.json·keyring 등 보임
+docker exec "$GW" sh -c 'echo "${GOG_KEYRING_PASSWORD:+set}"'   # "set" 출력
+```
+
+### STEP 4 — 컨테이너 *안* 에서 gog 인증·실제 API 검증
+```bash
+docker exec "$GW" gog auth list                       # 계정 보이면 키링 복호화 OK
+docker exec "$GW" gog gmail search --query 'newer_than:1d' --account <account@gmail.com> -j --max 1
+```
+**✅ 검증**: `auth list` 에 계정이 나오고, gmail 검색이 `rc=0` + JSON 결과면 **실제 Google API 호출 성공**.
+**❌ `:ro` 관련 쓰기 오류**가 나면 extra.yml 의 `gogcli` 마운트에 붙은 `:ro` 를 제거(RW)하고 재생성 — 토큰 갱신 쓰기가 필요한 경우입니다. (보안 강화로 `:ro` 를 원하면 RW 로 한 번 토큰 갱신 후 다시 `:ro` 로.)
+
+### STEP 5 — 워크스페이스에 gog 계정 명시 (★계정 불일치 함정 회피)
+
+> ⚠️ **이 단계를 빠뜨리면 STEP 4 에서 gog 가 멀쩡히 작동해도, 봇은 "이메일에 접근할 수 있는 도구가 연결되어 있지 않습니다" 로 답합니다 (저자 실측).** 원인: 봇은 워크스페이스 신원 파일 `USER.md` 에 적힌 *사용자 이메일* 로 gog 를 호출하는데, 그 이메일이 **gog 인증 계정과 다르면** gog 가 `OAuth client credentials missing` 으로 실패 → 봇은 "도구 없음" 으로 결론냅니다. (개인 페르소나 이메일 ≠ gog 인증 계정인 경우 특히 발생.)
+
+봇 워크스페이스(`~/.openclaw-docker/workspace/USER.md`)에 **gog 인증 계정**을 명시해, 봇이 올바른 계정으로 호출하게 합니다:
+
+```bash
+cat >> ~/.openclaw-docker/workspace/USER.md <<'EOF'
+
+## Google Workspace (gog)
+- gog 인증 계정: <account@gmail.com>   ← gog config 의 account_clients 와 동일해야 함
+- gog 호출 시 `--account` 를 생략(기본값 사용)하거나 위 계정을 사용. 다른 이메일로는 호출하지 말 것(미인증 → 실패).
+EOF
+```
+**✅ 검증**: USER.md 에 적은 계정이 gog 기본 계정과 같은지 대조:
+```bash
+GW=$(docker ps --filter name=openclaw-gateway --format '{{.Names}}' | head -1)
+docker exec "$GW" sh -c 'cat /home/node/.config/gogcli/config.json'   # account_clients 의 계정 = USER.md 의 계정
+```
+
+### STEP 6 — 스킬·봇 최종 확인
+```bash
+docker exec -e OPENCLAW_GATEWAY_PORT=18789 "$GW" node dist/index.js skills list 2>&1 | grep -i gog
+```
+**✅ 검증**: gog 가 `ready`. 텔레그램에서 **`/new`**(워크스페이스 변경 반영) 후:
+```
+내 메일 최근 5개 제목 알려줘
+```
+봇이 gog 로 실제 Gmail 을 읽어 답하면 **end-to-end 완료**.
+
+> 💡 **`/new` 필수** — 워크스페이스 파일(USER.md)은 *새 세션 첫 턴* 에 주입됩니다. 기존 대화 그대로면 STEP 5 변경이 반영 안 돼 계속 실패합니다.
+
+## 트러블슈팅 (요약)
+
+| 증상 | 해결 |
+|---|---|
+| 봇 `Something went wrong`, 로그에 `write EPIPE` | **5단계 PATH fix** 안 됨. `docker exec <gw> claude --version` 으로 확인 |
+| 봇 `access not configured` + pairing code | **6단계** `pairing approve telegram <code>` |
+| 봇 "이메일 도구가 연결돼 있지 않습니다"(gog 는 STEP4 에서 작동하는데도) | **gog STEP 5** — `USER.md` 의 이메일 ≠ gog 인증 계정. 워크스페이스에 gog 계정 명시 후 `/new`. (`gog --account <틀린계정>` → `OAuth client credentials missing`) |
+| 봇 응답 `timed out 180s (no-output stall)` | 위 **튜닝**(가벼운 모델/heartbeat off) 또는 `cliBackends.<rt>.noOutputTimeoutMs` 상향 |
+| CLI 가 `gateway closed (1006)` (병행 설치) | `docker compose run` 대신 `docker exec -e OPENCLAW_GATEWAY_PORT=18789 "$GW" node dist/index.js <cmd>` |
+| 컨테이너 `address already in use :18789` (병행) | 4단계 `OPENCLAW_GATEWAY_PORT`/`OPENCLAW_BRIDGE_PORT` 재지정 후 재시도 |
+| `EACCES /home/node/.openclaw` | `sudo chown -R 1000:1000 ~/.openclaw-docker` |
+| 이미지 빌드 OOM (exit 137) | RAM 2GB+ 필요 |
+
+> 진단 팁: `OPENCLAW_DEBUG=1 OPENCLAW_CLI_BACKEND_LOG_OUTPUT=1` 를 environment 에 넣어 재생성하면 백엔드 stdout/stderr·`cli argv` 가 로그에 보임.
+
+## 부록 — 왜 Claude Code 직접 실행보다 느린가 (단계별 프롬프트 누적)
+
+봇 응답이 Claude Code 를 터미널에서 직접 쓰는 것보다 느린 건 **컨테이너 때문이 아니라**(Docker 오버헤드는 무시 가능), 메시지가 `텔레그램 → 게이트웨이 → claude-cli → API` 로 가며 **단계마다 처리할 양이 누적**되기 때문입니다. 이 설치 기준 실측:
+
+### ① 텔레그램 → 게이트웨이
+사용자 원문(수~수십 자) + 채널·발신자 메타만. **미미함.**
+
+### ② 게이트웨이 → claude-cli 호출 (여기서 폭증)
+게이트웨이가 그 짧은 메시지를 무거운 claude 호출로 감싸며 아래를 붙입니다:
+
+| 항목 | 주입 방식 | 실측 | 비고 |
+|---|---|---|---|
+| 시스템 프롬프트 | `--append-system-prompt-file` | **~23.5KB** | openclaw 운영지침 + 워크스페이스 파일(AGENTS.md 7.8KB·SOUL.md·IDENTITY/USER/TOOLS/HEARTBEAT) 통째. **첫 턴만** |
+| 스킬 | `--plugin-dir` | **~12.8KB** | 스킬 정의 묶음 |
+| MCP 도구 | `--mcp-config` (528B) | 서버서 스키마 로드 | openclaw MCP 서버 연결 → `mcp__openclaw__*` 도구 스키마가 컨텍스트로 들어옴 |
+| 대화 이력 | `--resume <session>` | 누적↑ | 직전까지 전체 대화 (턴마다 증가) |
+| 확장 thinking | `--effort medium` | — | 추론 토큰·지연↑, partial 미스트림 |
+
+### ③ claude-cli → Anthropic API
+claude 가 자기 baseline 을 더함 (Claude Code 와 동일분이라 *openclaw 의 추가 부담은 아님*): Claude Code 자체 시스템 프롬프트 + 내장 도구 ~50개 정의(Bash/Read/Edit/…). ②의 항목들과 합쳐져 **매 API 호출의 입력 컨텍스트**가 됩니다.
+
+> **결과**: `"안녕"`(6 byte) 한 줄이 claude 가 실제 받는 입력으로는 **시스템프롬프트 23.5KB + 스킬 12.8KB + MCP 도구 스키마 + 내장 도구정의 + 누적 이력 = 수만 토큰**이 됩니다 (첫 턴 기준).
+
+### 왜 느림·stall 로 이어지나
+- 입력 토큰이 크면 **첫 토큰까지 시간(TTFT)↑**.
+- `--effort medium` thinking 은 partial 이 안 흘러 게이트웨이엔 "출력 없음"으로 보임 → **180s no-output watchdog** 위험.
+- 매 턴 temp 파일 작성 + MCP 연결 = **~10초 전처리**(로그의 `Inbound`→`cli exec` 간격).
+- Claude Code(대화형)는 이 컨텍스트를 한 번 warm 하게 올려 재사용 + prompt caching 으로 가볍지만, 봇은 메시지마다 서브프로세스로 다시 조립.
+
+### 완화 (일부는 위 튜닝에서 적용)
+- **가벼운 모델**(sonnet/haiku) + **하트비트 off** — 시스템 프롬프트의 Heartbeat 섹션·주기 실행 제거.
+- **스킬 최소화**(12.8KB↓), **워크스페이스 파일 슬림화**(AGENTS.md 7.8KB 등 → 시스템 프롬프트↓).
+- 연속 대화는 **2번째 턴부터 resume + prompt cache** 로 가벼워짐 (첫 턴이 가장 무거움).
+
+> 요점: **컨테이너화는 속도와 무관.** 느림의 본질은 게이트웨이가 매 턴 붙이는 *시스템프롬프트·스킬·MCP·이력의 누적*이며, native 설치로 바꿔도 동일하다.
 
 ## 다음 단계
 
-- native 절차와의 비교: [openclaw-native.md](./openclaw-native.md)
-- 자세한 공식 문서: <https://docs.openclaw.ai/install/docker>
+- 최초 구동 시 쓸 수 있는 기본 스킬: [openclaw-skills.md](./openclaw-skills.md)
+- native 절차: [openclaw-native.md](./openclaw-native.md)
+- 공식 문서: <https://docs.openclaw.ai/install/docker>
