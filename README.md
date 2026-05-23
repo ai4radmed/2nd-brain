@@ -1,6 +1,6 @@
 # BenKorea's 2nd-brain
 
-> 개인 자료를 AI agent 가 다루기 좋은 형식으로 가공하고, 클라우드(메일·일정·연락처)와 연계해 지식화하는 PKM 프로젝트의 **컴포넌트 설치 안내** 저장소입니다.
+> 개인 자료를 AI agent 가 다루기 좋은 형식으로 가공하고, 클라우드(메일·일정·연락처)와 연계해 지식화하는 PKM 프로젝트의 **공개 운영 저장소**입니다 — 설치 안내(`docs/`) · 운영 방법론(`methodology/`) · vault 골격·템플릿(`templates/`) · 부트스트랩(`bootstrap.sh`)을 한곳에 담습니다. 실제 개인 데이터는 별도 비공개 `2nd-brain-vault` 에 둡니다.
 
 ## Second Brain이란?
 
@@ -54,9 +54,10 @@
 3. WSL2에서 docker 및 docker-compose 설치
 4. WSL2에서 Claude Code CLI 설치
 5. Telegram 설치 및 Bot 토큰 만들기
-6. OpenClaw Docker 컨테이너 설치: [openclaw-docker-container.md](./openclaw-docker-container.md)
-7. 설치 후 기본 스킬·활용: [openclaw-skills.md](./openclaw-skills.md)
-8. (선택) gog 로 Google Workspace(메일·일정·할일) 연계: [openclaw-docker-gog.md](./openclaw-docker-gog.md)
+6. OpenClaw Docker 컨테이너 설치: [docs/openclaw-docker-container.md](./docs/openclaw-docker-container.md)
+7. 설치 후 기본 스킬·활용: [docs/openclaw-skills.md](./docs/openclaw-skills.md)
+8. (선택) gog 로 Google Workspace(메일·일정·할일) 연계: [docs/openclaw-docker-gog.md](./docs/openclaw-docker-gog.md)
+9. 내 vault 만들기: `./bootstrap.sh` 실행 — 빈 PARA 골격(knowledge/ + sources/) + 가이드를 `@`-import 하는 얇은 `CLAUDE.md` 자동 생성. 이후 운영 방법론은 [methodology/](./methodology/) 참조, 자료 흡수는 brainify.
 
 ## 설치방법 (AI Agent)
 
