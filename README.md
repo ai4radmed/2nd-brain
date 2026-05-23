@@ -1,6 +1,7 @@
 # BenKorea's 2nd-brain
 
-> 개인 자료를 AI agent 가 다루기 좋은 형식으로 가공하고, 클라우드(메일·일정·연락처)와 연계해 지식화하는 PKM 프로젝트의 **공개 운영 저장소**입니다 — 설치 안내(`docs/`) · 운영 방법론(`methodology/`) · vault 골격·템플릿(`templates/`) · 부트스트랩(`bootstrap.sh`)을 한곳에 담습니다. 실제 개인 데이터는 별도 비공개 `2nd-brain-vault` 에 둡니다.
+- 개인 자료를 AI agent 가 다루기 좋은 형식으로 가공하고, 클라우드(메일·일정·연락처)와 연계해 지식화하는 PKM 프로젝트의 **공개 운영 저장소**
+— 보안강화를 위해 OpenClaw를 Docker Container로 설치 운영
 
 ## Second Brain이란?
 
