@@ -1,6 +1,6 @@
-# OpenClaw 기본 스킬 — 최초 구동 시 무엇을 할 수 있나
+# OpenClaw 스킬 — 무엇을 바로 쓰고, 어디까지 할 수 있나
 
-[openclaw-container.md](./openclaw-container.md) 로 게이트웨이를 처음 띄우면, 별도 설치 없이도 일정 수의 **스킬(skill)** 이 이미 들어 있습니다. 이 강의록은 *순정 설치 직후* 일반 사용자가 바로 할 수 있는 것을 정리합니다.
+[openclaw-docker-container.md](./openclaw-docker-container.md) 로 게이트웨이를 처음 띄우면, 별도 설치 없이도 일정 수의 **스킬(skill)** 이 이미 들어 있습니다. 이 문서는 **바로 쓸 수 있는 스킬(ready)** 부터 — 더 풀려면 무엇이 필요한지(needs-setup·Docker slim 한계), gog 로 할 수 있는 것·없는 것, cron 자동화·실용 활용까지 — 한곳에 정리합니다.
 
 > 측정 환경: ghcr `openclaw/openclaw` (버전 2026.5.20). 스킬 구성·개수는 버전에 따라 달라질 수 있으니, 본인 환경에서는 아래 *확인 명령* 으로 직접 보세요.
 
@@ -90,7 +90,7 @@ docker compose -f docker-compose.yml -f docker-compose.extra.yml run --rm opencl
 - 단 gog 는 **정적 단일 바이너리**라 시스템 libs 불필요 → 호스트 바이너리를 마운트 경로에 복사 + PATH 추가 → **영속·간단**(browser 와 결정적 차이).
 - 인증은 별도: `~/.config/gogcli-*` 마운트 + **Google OAuth(GCP 프로젝트·클라이언트) 설정** — 이건 native 든 Docker 든 동일한 *Google 연동의 본질적 관문*이지 Docker 탓이 아닙니다.
 
-> 📋 **단계별 설치 절차(검증 게이트 포함)**: [openclaw-container.md](./openclaw-container.md) 의 **"(선택) gog 붙이기" STEP 1~6** 참조 — 바이너리 복사·config 마운트·keyring env·실 API 검증, 그리고 봇이 "이메일 도구 없음" 으로 막히는 **계정 불일치 함정 회피(STEP 5)** 까지.
+> 📋 **단계별 설치 절차(검증 게이트 포함)**: [openclaw-docker-gog.md](./openclaw-docker-gog.md) 의 **STEP 1~6** 참조 — 바이너리 복사·config 마운트·keyring env·실 API 검증, 그리고 봇이 "이메일 도구 없음" 으로 막히는 **계정 불일치 함정 회피(STEP 5)** 까지.
 
 ### 일반 규칙
 
@@ -101,6 +101,104 @@ docker compose -f docker-compose.yml -f docker-compose.extra.yml run --rm opencl
 | 자격증명·토큰 (OAuth 등) | 마운트된 config 에 저장 → 영속 |
 
 > 핵심: **"skill ready ≠ Docker 에서 작동".** 정적 바이너리는 복사로, 시스템 의존성은 커스텀 이미지로. 공식 문서는 이 통합 절차를 (gog=gogcli.sh / Docker baking=install/docker.md / 스킬 메타=tools/skills.md 로) **흩어놓아서**, 이 강의록이 그 빈틈을 메웁니다.
+
+## gog 로 할 수 있는 것 (설치·인증 후)
+
+> 능력의 권위 출처: ① 봇이 읽는 **`SKILL.md`**(`/app/skills/gog/SKILL.md`) · ② **`gog --help`** / `gog <서비스> --help`(명령 트리) · ③ **`gog auth list`**(인증 scope = 실제 천장) · ④ <https://gogcli.sh>(공식 docs)
+
+**인증 scope(천장, 개인 계정 기준)**: `gmail · calendar · drive · docs · sheets · slides · contacts(people) · classroom · tasks · chat · forms · groups`
+
+| 서비스 | 봇이 자연어로 시킬 수 있는 것 | gog 명령 예 |
+|---|---|---|
+| 📧 **Gmail** | 검색·읽기·발송·초안·답장 | `gog gmail search 'newer_than:7d'` · `gog gmail send --to … --subject … --body …` · `gog gmail drafts create …` |
+| 📅 **Calendar** | 일정 조회·생성·수정·색상 | `gog calendar events <cal> --from <iso> --to <iso>` · `gog calendar create …` |
+| ✅ **Tasks(할일)** | 할일 조회·관리 | `gog tasks --help` |
+| 📁 **Drive** | 검색·목록·다운로드·업로드 | `gog drive search "…"` · `gog drive upload <path>` |
+| 📄 **Docs** | 본문 출력·export | `gog docs cat <id>` · `gog docs export <id> --format txt` |
+| 📊 **Sheets** | 셀 읽기·쓰기·추가·삭제 | `gog sheets get <id> "Tab!A1:D10"` · `gog sheets append …` |
+| 👤 **Contacts** | 연락처 목록·내 프로필 | `gog contacts list` · `gog me` |
+| 🖼️ Slides · 🎓 Classroom · 👥 Groups | 명령 트리 존재 | `gog slides/classroom/groups --help` |
+
+> 강의 한 줄: **gog 로 봇은 "메일·일정·할일·드라이브·문서·시트" 를 자연어로 다룬다** — 일반 사용자가 가장 원하는 *정리* 작업을 정확히 커버. 단 Docker 설치는 위 STEP 절차 필요(특히 **계정 신원 일치**).
+
+## gog 단독 vs 시스템 커스텀 스킬 — 무엇이 안 되나
+
+> 한 줄: **구글 *안* 에서 끝나는 작업은 gog 단독으로 됨. 구글 *밖* 2nd-brain 으로 끌어와 정리(브레인화)는 안 됨.**
+
+| 작업 | gog 단독 | 근거 |
+|---|---|---|
+| 일정 등록 | ✅ 완전 | `gog calendar create` — 구글 쪽에서 끝남 |
+| 할일 등록 | ✅ 완전 | `gog tasks add` |
+| 회신·초안 작성 | ✅ 완전 | `gog gmail send --reply-to-message-id` / `gmail drafts create` |
+| 라벨별 첨부파일 *다운로드* | ✅ 됨 | `gmail messages search "label:X"` → `gmail get` → `gmail attachment` |
+| 라벨별 첨부파일 → **2nd-brain 정리 저장** | ❌ | 아래 3가지 부재 |
+
+**gog 단독으로 ❌ 인 것 (= 시스템 커스텀 스킬이 메우던 영역):**
+
+1. **vault 접근** — 컨테이너에 `~/projects/2nd-brain-vault` 가 **마운트 안 됨** → 다운로드해도 PARA 구조에 못 넣음 (컨테이너 workspace 에 떨굴 뿐).
+2. **브레인화 규약** — 파일명 규칙·knowledge/sources 분리·**동반 노트**(frontmatter+요약)·wikilink. (커스텀 `brainify-inbox` 스킬)
+3. **분류·트리아지 정책** — 라벨→액션 매핑(8-라벨 모델)·4분류·dedup·멱등성·검증된 JSON 파싱. (커스텀 `gws-assistant` 등)
+
+> **gog = 동사(Google API 능력) · 커스텀 스킬 = 문장(워크플로우·정책) + 2nd-brain 통합.**
+> 컨테이너에서 브레인화까지 하려면 ① vault 마운트 + ② 커스텀 스킬 이식이 추가로 필요합니다.
+
+## 실습 — 스킬 없이 gog + cron 으로 라벨 자동화
+
+> 교육 포인트: **새 스킬을 만들지 않고**, 이미 깔린 gog 스킬 + 내장 cron + *프롬프트 한 덩어리* 만으로 반복 자동화가 된다.
+
+**시나리오**: Gmail 라벨별 처리 후 `완료` 로 이동 — `첨부저장`→첨부 다운로드, `일정등록`→캘린더 등록, `할일등록`→할일 등록.
+
+**사전 준비**: Gmail 에 라벨 `데모1 첨부저장`·`데모2 일정등록`·`데모3 할일등록`·`데모4 완료` 생성 (없으면 봇에게 "gog 로 만들어줘"). 번호 접두로 정렬·구분이 쉽다.
+
+### ① 작업 프롬프트 (텔레그램에 붙여넣기 — **라벨 1개씩**)
+
+> 💡 **라벨별로 따로 실행**합니다. 3개를 한 프롬프트에 묶으면 다단계 작업이 길어져 **180s no-output watchdog** 에 걸려 죽습니다(저자 실측). 라벨당 1개 + *각 메일 처리 시 한 줄 보고* 로 쪼개면 빠르고, 출력이 흘러 watchdog 타이머도 리셋됩니다. (처음 한 번씩 수동 실행해 검증 후 cron 등록)
+
+**[1] 첨부 저장**
+```
+gog 로 라벨 "데모1 첨부저장" 메일을 처리해줘. 계정 기본값.
+각 메일 첨부를 ~/.openclaw/workspace/attachments/ 에 다운로드하고,
+성공한 메일만 "데모1 첨부저장" 제거 + "데모4 완료" 추가.
+각 메일 처리할 때마다 한 줄씩 보고하고, 끝에 "처리 N / 실패 M" 요약.
+```
+**[2] 일정 등록**
+```
+gog 로 라벨 "데모2 일정등록" 메일을 처리해줘. 계정 기본값.
+각 메일 내용에서 제목·날짜·시간을 추출해 기본 캘린더에 일정 등록(gog calendar create),
+성공한 메일만 "데모2 일정등록" 제거 + "데모4 완료" 추가.
+각 메일 처리할 때마다 한 줄씩 보고하고, 끝에 "처리 N / 실패 M" 요약.
+```
+**[3] 할일 등록**
+```
+gog 로 라벨 "데모3 할일등록" 메일을 처리해줘. 계정 기본값.
+각 메일 제목을 할일로 등록(gog tasks add),
+성공한 메일만 "데모3 할일등록" 제거 + "데모4 완료" 추가.
+각 메일 처리할 때마다 한 줄씩 보고하고, 끝에 "처리 N / 실패 M" 요약.
+```
+> 공통 규칙: **성공한 메일만** 라벨 이동, 실패는 라벨 유지 + 사유 보고.
+> 라벨명에 공백이 있어 검색은 `label:"데모1 첨부저장"`(따옴표) 또는 `label:데모1-첨부저장`(공백→하이픈) — 봇이 보통 알아서 조정.
+
+### ② cron 등록 (텔레그램 한 줄)
+```
+방금 그 라벨 처리 작업을 매일 아침 8시에 자동 실행하도록 cron 에 등록해줘.
+```
+→ 내장 cron 에 "정해진 시각 + 이 프롬프트" 가 예약되어, 시간마다 자동 처리.
+
+### ★ 이 과정에 새 스킬은 만들어지지 않는다
+| 쓰이는 것 | 정체 |
+|---|---|
+| gog 스킬 | 이미 설치된 *번들* (새로 안 만듦) |
+| cron 항목 | 내장 cron 의 *예약 데이터* — "언제 + 어떤 프롬프트" 만 저장. SKILL.md·코드 없음 |
+| 프롬프트 | 위 텍스트 = *정책*. cron 메시지에 저장돼 매 실행 LLM 이 해석 |
+
+- `workspace/skills/` 에 **새 파일이 안 생긴다** = "스킬" 이 아니라 "예약된 지시문(데이터)".
+- cron 메시지가 슬래시커맨드(`/skill명`)가 아닌 **평범한 자연어** 라, 컨테이너의 cron→스킬확장 경로도 안 탄다.
+- 정리: **능력(gog) + 스케줄러(cron) + 지시문(프롬프트)** = "스킬 제작" 이 아니라 "기존 능력의 예약 사용".
+
+### 한계 (솔직)
+- 첨부는 **컨테이너 workspace** 에 저장 (vault 아님 — 브레인화 저장은 별도, 위 비교 표).
+- 무인 반복 신뢰성은 프롬프트 품질·완료조건 명확성에 의존 → 안정 운영엔 결정형 래퍼 권장.
+- **자연 멱등**: 처리한 메일은 트리거 라벨이 제거돼 다음 실행 검색에 안 잡힘.
 
 ## 데모로 보여주기 좋은 것
 
@@ -183,10 +281,37 @@ needs-setup 스킬 없이, 텔레그램으로 바로 되는 활용입니다.
 | 2. 여행 브리핑 | weather + browser-automation | 없음 |
 | 3. 정기 모니터링 | taskflow + browser-automation | 정기 실행 시 cron |
 
+## 응답 속도 최적화 (실측 기반)
+
+봇이 느리면 대부분 **세팅 문제**입니다. 단순 gog 작업(메일 3건 제목)으로 실측:
+
+| 설정 | warm 응답 | 비고 |
+|---|---|---|
+| sonnet-4-6 (기본) | 18~34초 | thinking 무거움 |
+| **haiku-4-5** | **6.5초** | **3~5배 빠름** |
+| 다단계를 한 턴에 몰빵 | ❌ ~180초 후 죽음 | no-output watchdog |
+| 백그라운드 위임 | ❌ 고아·무응답 | 워커가 결과를 안 돌려줌 |
+
+> 전처리·OAuth 부트스트랩은 **warm 에서 ~0.5초로 무시 가능**. 콜드(재시작 직후 첫 메시지)만 +8초 — 일회성.
+
+### 어떻게 빠르게 하나 — 설치 체크리스트로
+
+구체적 설정·결정은 **설치 시 1회 결정** 사항이라, [openclaw-docker-container.md](./openclaw-docker-container.md) 의 **"초기 설정 시 반드시 검토 (모델·watchdog·하트비트·thinking)"** 에 체크리스트로 정리돼 있습니다. 핵심만:
+
+- **① 작업에 맞는 모델** — 기계적 작업 = `haiku-4-5` (가장 큰 레버), 추론 필요 = `sonnet`.
+- **② watchdog ↔ 다단계 작업** — 한 턴에 몰빵 금지 → 단계별 분리 + **"각 처리마다 한 줄 회신"**(타이머 리셋). 위 **"실습 — gog + cron 라벨 자동화"** 절 참조.
+- **③ 위임 금지** — 프롬프트에 *"백그라운드·하위 에이전트로 위임하지 말고 직접 실행"*.
+- **④ 하트비트 off** / thinking 은 모델 선택으로 대체 (⚠️ `agents.defaults.thinking` 직접 설정은 crash).
+
+### 구조적 하한 (못 줄이는 부분)
+자연어 매개라 매 턴 "읽고→생각하고→툴 호출→결과 읽고→응답" LLM 루프를 돕니다 → 직접 `gog`(2초)보다 **항상 느림**(최적화해도 단순 작업 **~5~10초**). **즉답**이 필요하면 직접 gog/Claude Code, **폰·비동기·cron·푸시**가 가치면 봇.
+
+> 느림의 *구조적 원인*(매 턴 시스템프롬프트 23.5KB + 스킬 + MCP + 이력 누적)은 [openclaw-docker-container.md](./openclaw-docker-container.md) 의 "왜 느린가" 부록 참조.
+
 ## 정리
 
 - 순정 OpenClaw = 스킬 58개 번들, **즉시 사용 14개** + 기본 대화.
 - 일반 사용자 체감 가치는 **A(일상·업무 6개) + D(기본 대화)**, 나머지는 개발/관리자용이거나 설정이 필요.
 - 더 많은 일상 기능(이메일·캘린더·GitHub)은 "needs setup" 을 개별 해제.
 
-> 다음: 스킬 추가·제작은 [openclaw-container.md](./openclaw-container.md) 의 운영 흐름과 OpenClaw 공식 문서 <https://docs.openclaw.ai> 를 참고하세요.
+> 다음: 스킬 추가·제작은 [openclaw-docker-container.md](./openclaw-docker-container.md) 의 운영 흐름과 OpenClaw 공식 문서 <https://docs.openclaw.ai> 를 참고하세요.
