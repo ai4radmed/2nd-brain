@@ -199,13 +199,87 @@ PY
 ```
 적용: 5단계의 `--force-recreate`. 로그에 `agent model: ...haiku-4-5` + `[heartbeat] disabled` 확인.
 
-**2. watchdog ↔ 연결(다단계) 작업** — 게이트웨이는 **180초간 출력 없으면 turn 을 강제 종료**합니다(no-output watchdog). 여러 단계·여러 항목을 한 프롬프트에 몰면 걸려 죽습니다. → **단계별로 쪼개고**, 프롬프트에 **"각 처리마다 한 줄씩 회신"** 을 넣어 *중간 출력이 흘러 타이머가 리셋* 되게 합니다.
+**2. watchdog ↔ 연결(다단계) 작업** — 게이트웨이는 **180초간 출력 없으면 turn 을 강제 종료**합니다(no-output watchdog). 여러 단계·여러 항목을 한 프롬프트에 몰면 걸려 죽습니다. → **단계별로 쪼개고**, 프롬프트에 **"각 처리마다 한 줄씩 회신"** 을 넣어 *중간 출력이 흘러 타이머가 리셋* 되게 합니다. 첫 토큰 자체가 stall 하는 간헐 무응답(스트리밍 버그)은 프롬프트로 못 막으니 **[신뢰성 섹션](#신뢰성--스트리밍-stall-과-자동-복구-watchdog--model-fallback-)의 watchdog+fallback 한 쌍**으로 자동 복구시키세요.
 
 **3. 하트비트** — 주기적 self-run 이 불필요하면 끄기 (위 1번 코드에 `heartbeat.every="0m"` 포함). 동시 세션·비용 절감.
 
 **4. think mode** — `haiku` 는 기본 thinking 으로 충분히 빠릅니다. ⚠️ `agents.defaults.thinking` 을 직접 넣으면 **config 검증 오류로 게이트웨이가 crash-loop** 합니다(저자 실측). thinking 을 굳이 낮추려면 모델 스펙 문법이 필요하니, 보통은 **모델 선택(1번)으로 대체**하세요.
 
 > ⚠️ **위임 함정**: 다단계 작업 프롬프트에 *"백그라운드·하위 에이전트로 위임하지 말고 이 턴에서 직접 실행"* 을 안 넣으면, 봇이 detached 워커로 분리해 **결과가 안 돌아올 수 있습니다**(고아 run). 위임 금지를 명시하세요.
+
+---
+
+## 신뢰성 — 스트리밍 stall 과 자동 복구 (watchdog + model fallback) ★
+
+> **증상**: 봇이 특정 turn 에서 **아무 응답도 안 하고 멈췄다가**(thinking 조차 없음) 한참 뒤 `Something went wrong` / 로그에 `CLI produced no output for 180s` · `turn failed ... FailoverError`. 가벼운 turn(인사·간단 검색)은 멀쩡한데 **무거운 resume·cold-start turn 만 간헐적으로** 걸린다. **이 설정 없이 그대로 두면 stall 이 재발한다.**
+
+### 근본 원인 — 컨테이너가 아니라 Claude Code 스트리밍 버그
+
+라이브 포렌식 결과 이건 OpenClaw·Docker 고유 문제가 **아니다**. 상위 **Claude Code 의 스트리밍 연결 stall 버그**다:
+
+- claude 가 Anthropic 소켓에서 응답을 기다리며 `epoll_wait` 에 무한 매달림 — **read-timeout 부재**. 죽은 연결을 재사용하면 응답이 영영 안 옴.
+- 어시스턴트 출력이 0 byte → OpenClaw 의 **no-output watchdog**(기본 180초)이 turn 을 강제 종료 → `FailoverError`.
+- 공개 이슈: claude-code [#25979](https://github.com/anthropics/claude-code/issues/25979)(read-timeout 부재 무한 hang), [#23081](https://github.com/anthropics/claude-code/issues/23081)(retry 가 stale http2 pool 미리셋), [#53328](https://github.com/anthropics/claude-code/issues/53328)(tool_result 유실 후 hang).
+- 컨테이너에서 빈도가 **더 높아 보이는 이유**는 NAT 가 idle 연결을 더 빨리 떨궈서일 뿐, 원인은 동일. host native 게이트웨이에서도 같은 계열로 발생한다.
+
+검증으로 배제된 헛다리: ❌ 모델/인증/네트워크 (격리 시 bare `claude -p` 는 2초 정상, 토큰·망 OK) · ❌ raw 프롬프트 크기 (120KB fresh 프롬프트는 컨테이너·호스트 둘 다 7~11초 정상) · ❌ 블로그발 `CLAUDE_ENABLE_BYTE_WATCHDOG`·`CLAUDE_STREAM_IDLE_TIMEOUT_MS` env (claude 2.1.x 바이너리·번들에 그 문자열 **부재** — strings 로 실재 검증함. **claude-side 노브 없음 확정**).
+
+### 해결 — OpenClaw 레이어에서 잡는다 (두 설정 한 쌍)
+
+claude-side 에 손댈 노브가 없으므로 **OpenClaw 가 stall 을 감지(watchdog)하고 다른 모델로 재시도(model fallback)** 하게 한다. 둘은 짝이다 — watchdog 만 있으면 죽이기만 하고, fallback 만 있으면 watchdog 이 안 깨우면 영영 매달린다.
+
+```bash
+python3 - <<'PY'
+import json, pathlib
+f = pathlib.Path.home()/".openclaw-docker/openclaw.json"
+d = json.loads(f.read_text())
+defs = d["agents"]["defaults"]
+
+# (1) model fallback — primary stall→FailoverError 시 다음 모델로 자동 재시도.
+#     재시도는 fresh 프로세스/연결이라 죽은 http2 연결을 버리고 복구된다.
+defs["model"] = {
+    "primary": "anthropic/claude-haiku-4-5",
+    "fallbacks": ["anthropic/claude-haiku-4-5", "anthropic/claude-sonnet-4-6"],
+}
+
+# (2) reliability watchdog — no-output 타임아웃을 180→90s 로 단축해 복구를 앞당김.
+#     ⚠️ "command":"claude" 가 없으면 스키마 검증에서 거부된다.
+defs["cliBackends"] = {
+    "claude-cli": {
+        "command": "claude",
+        "reliability": {"watchdog": {
+            "fresh":  {"noOutputTimeoutMs": 90000},
+            "resume": {"noOutputTimeoutMs": 90000},
+        }},
+    }
+}
+f.write_text(json.dumps(d, indent=2, ensure_ascii=False)); print("ok")
+PY
+```
+
+적용: 5단계의 `--force-recreate`. 게이트웨이 healthy + 일반 turn 정상 회신 확인.
+
+**동작 흐름**: stall → watchdog 90s 종료 → `turn failed FailoverError` → 로그 `model fallback decision: next=anthropic/claude-sonnet-4-6`(설정 전엔 `next=none` 이라 재시도 안 했음) → `cli exec model=sonnet`(새 프로세스/연결) → 보통 8~9초 정상 완료. stall turn 총 소요는 ~100~200초(watchdog 대기 + 재시도)로 느리지만, **무응답 → 복구**로 바뀐다. (실증 2026-05-23: haiku 186s stall → sonnet 8.7s 성공 → 봇 정상 회신.)
+
+### 설정 함정 (실측)
+
+- **`cliBackends` 위치**: 반드시 `agents.defaults` **하위**. top-level 에 넣으면 `Invalid config <root>: Invalid input` 으로 **게이트웨이 crash-loop**.
+- **`command: "claude"` 필수**: `CliBackendSchema` 가 `command` 를 요구 → `reliability` 만 넣으면 스키마 거부.
+- **noOutputTimeoutMs 범위**: 최소 1000ms, 전체 agent timeout(`agents.defaults.timeoutSeconds`, 기본 600초)−1초 로 cap. 90초는 "빠른 복구" 선택이고, 재시도 자체가 싫으면 180→600 상향(완화)만 해도 된다.
+- **provider prefix**: 위 예시는 컨테이너 OAuth 라 `anthropic/...`. host native + claude CLI 백엔드는 `claude-cli/claude-opus-4-7` 같은 표기를 쓴다 — 환경의 모델 ID 표기에 맞춰라.
+
+### 부작용 — stall 이 텔레그램 수신 큐 전체를 막는다 (spool-wedge)
+
+OpenClaw 텔레그램은 수신 메시지를 spool(`<config>/telegram/ingress-spool-default/`)에 적재하고 **1건씩 순서대로** 처리한다. stall 난 turn 이 `.json.processing` 락을 쥔 채 멈추면 **그 뒤 모든 메시지가 큐에서 영구 대기** — `/new` 조차 무응답. fallback 이 stall 을 빨리 복구하면 이 wedge 도 함께 완화되지만, 이미 막혔다면:
+
+1. spool 디렉토리 `ls` 로 `.processing` 잔존·미처리 `.json` 적체 확인 (`getWebhookInfo` 의 pending 은 0 으로 정상으로 보일 수 있음 — spool 은 그 아래 계층).
+2. 막은 항목을 spool 밖으로 이동(재처리 시 재stall 방지 — staller 는 버린다) → 게이트웨이 재시작 → 잔여 배수.
+
+> ⚠️ **recreate 가 spool-wedge 를 재발시킨다**: turn 처리 중에 `--force-recreate`/restart 하면 그 turn 의 spool 항목이 stale `.processing` 으로 남아 다음 메시지를 막는다. **config 튜닝 recreate 전에 (1) 진행 중 turn 없음 확인, (2) recreate 후 spool 에 `.processing` 잔재 있으면 즉시 정리.**
+
+### host native 와의 관계
+
+같은 stall 은 host native 게이트웨이의 cron(`gws-assistant-poll`)에서도 `CLI produced no output for 600s` 로 먼저 나타났다(2026-05-19). 다만 native 쪽 1차 완화는 **모델 fallback 이 아니라** run.py 의 무거운 처리량을 600초 한참 아래로 묶는 방식(`POLL_HEAVY_BUDGET`)이었다 — *run 길이* 를 줄여 watchdog 을 안 건드리는 접근. 컨테이너 쪽은 첫 토큰 자체가 stall 하는 케이스라 *재시도(fallback)* 로 잡는다. **같은 근본 원인, 다른 레이어의 처방**임을 기억할 것.
 
 ---
 
@@ -222,7 +296,8 @@ PY
 | 봇 `Something went wrong`, 로그에 `write EPIPE` | **5단계 PATH fix** 안 됨. `docker exec <gw> claude --version` 으로 확인 |
 | 봇 `access not configured` + pairing code | **6단계** `pairing approve telegram <code>` |
 | 봇 "이메일 도구가 연결돼 있지 않습니다"(gog 는 STEP4 에서 작동하는데도) | **gog STEP 5** — `USER.md` 의 이메일 ≠ gog 인증 계정. 워크스페이스에 gog 계정 명시 후 `/new`. (`gog --account <틀린계정>` → `OAuth client credentials missing`) |
-| 봇 응답 `timed out 180s (no-output stall)` | 위 **튜닝**(가벼운 모델/heartbeat off) 또는 `cliBackends.<rt>.noOutputTimeoutMs` 상향 |
+| 봇 응답 `timed out 180s (no-output stall)` / 무거운 turn 만 간헐 무응답 후 `FailoverError` | [**신뢰성 섹션**](#신뢰성--스트리밍-stall-과-자동-복구-watchdog--model-fallback-) — model fallback + watchdog 한 쌍으로 자동 복구. (근본은 Claude Code 스트리밍 버그, 컨테이너 무관) |
+| 봇·`/new` 모두 묵묵부답, webhook pending=0 인데 응답 없음 | stall 이 텔레그램 spool 을 wedge — 신뢰성 섹션 "spool-wedge" 복구 절차 |
 | CLI 가 `gateway closed (1006)` (추가 컨테이너 병행 시) | `docker compose run` 대신 `docker exec -e OPENCLAW_GATEWAY_PORT=18789 "$GW" node dist/index.js <cmd>` |
 | 컨테이너 `address already in use :18789` (추가 컨테이너 병행 시) | 4단계 `OPENCLAW_GATEWAY_PORT`/`OPENCLAW_BRIDGE_PORT` 재지정 후 재시도 |
 | `EACCES /home/node/.openclaw` | `sudo chown -R 1000:1000 ~/.openclaw-docker` |
