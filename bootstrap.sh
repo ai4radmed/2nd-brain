@@ -62,8 +62,11 @@ fi
 if [ ! -d "$VAULT_DIR/.git" ]; then
   git -C "$VAULT_DIR" init -q
   git -C "$VAULT_DIR" add -A
-  git -C "$VAULT_DIR" commit -q -m "초기 vault 골격 (2nd-brain bootstrap)" || true
-  echo "✅ git init + 초기 커밋"
+  if git -C "$VAULT_DIR" commit -q -m "초기 vault 골격 (2nd-brain bootstrap)" 2>/dev/null; then
+    echo "✅ git init + 초기 커밋"
+  else
+    echo "⚠️ git init 완료, 초기 커밋 실패 — 'git config --global user.name/user.email' 설정 후 직접 커밋하세요"
+  fi
 else
   echo "↷ .git 이 이미 있어 건너뜀"
 fi
