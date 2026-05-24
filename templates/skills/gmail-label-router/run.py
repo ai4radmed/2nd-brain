@@ -118,20 +118,33 @@ def _find_text(payload: dict) -> str:
     return walk(payload, "text/plain") or walk(payload, "text/html") or ""
 
 
-def build_thread_md(thread: dict) -> str:
-    """스레드 전 메시지 → 마크다운 (판단 0: 헤더 + 본문 텍스트만, 시간순)."""
+def build_thread_md(thread: dict, tid: str) -> str:
+    """스레드 전 메시지 → 마크다운. 프론트매터(멱등성 키) + 헤더 + 본문(시간순).
+    프론트매터의 gmail_thread_id·message_count 가 Router/brainify 멱등성의 단일 근거."""
     msgs = sorted(thread.get("messages", []), key=lambda m: int(m.get("internalDate", "0") or 0))
+    last_ts = max((int(m.get("internalDate", "0") or 0) for m in msgs), default=0)
+    last_iso = datetime.datetime.fromtimestamp(last_ts / 1000).strftime("%Y-%m-%d %H:%M") if last_ts else ""
+    top = _headers(msgs[-1].get("payload", {})) if msgs else {"from": "", "to": "", "subject": "", "date": ""}
+    fm = (
+        "---\n"
+        f"gmail_thread_id: {tid}\n"
+        f"message_count: {len(msgs)}\n"
+        f"last_internal_date: \"{last_iso}\"\n"
+        f"subject: {json.dumps(top['subject'], ensure_ascii=False)}\n"
+        f"from: {json.dumps(top['from'], ensure_ascii=False)}\n"
+        "---\n\n"
+    )
     blocks = []
     for m in msgs:
         pl = m.get("payload", {})
-        H = _headers(pl)
+        h = _headers(pl)
         body = (_find_text(pl) or m.get("snippet", "")).strip()
         blocks.append(
-            f"### {H['date']}\n"
-            f"**From:** {H['from']}  \n**To:** {H['to']}  \n**Subject:** {H['subject']}\n\n"
+            f"### {h['date']}\n"
+            f"**From:** {h['from']}  \n**To:** {h['to']}  \n**Subject:** {h['subject']}\n\n"
             f"{body}"
         )
-    return "\n\n---\n\n".join(blocks)
+    return fm + "\n\n---\n\n".join(blocks)
 
 
 def _slug(s: str, maxlen: int = 50) -> str:
@@ -162,7 +175,9 @@ def thread_folder_name(thread: dict, tid: str) -> str:
 
 # ── 헬퍼 ──────────────────────────────────────────────────────────────────
 def search_threads(label: str):
-    """라벨로 검색 → (고유 thread_id 목록, 디버그용 첫 항목). 실패 시 (None, None)."""
+    """라벨로 검색 → (고유 thread_id 목록, 디버그용 첫 항목). 실패 시 (None, None).
+    멱등성 게이트의 message_count 는 검색이 아니라 thread get 후 len(messages) 로 계산
+    (검색 messageCount 는 '라벨 일치 메시지 수'라 스레드 전체 수와 다를 수 있음)."""
     res = gog_json("gmail", "search", f'label:"{label}"', "--max", str(MAX))
     if res is None:
         return None, None
@@ -203,7 +218,7 @@ def extract_attachments(result, out_dir: pathlib.Path) -> list[tuple[pathlib.Pat
 
 
 def unique_dest(dst: pathlib.Path) -> pathlib.Path:
-    """이름 충돌 시 _1, _2 … 로 회피 (덮어쓰지 않음)."""
+    """이름 충돌 시 _1, _2 … 로 회피 (덮어쓰지 않음). 단일 캡처 내 동명 첨부용."""
     if not dst.exists():
         return dst
     i = 1
@@ -214,9 +229,47 @@ def unique_dest(dst: pathlib.Path) -> pathlib.Path:
         i += 1
 
 
+def _read_front(path: pathlib.Path) -> dict:
+    """_thread.md 프론트매터의 단순 `key: value` 파싱 (멱등성 키 읽기용)."""
+    out: dict = {}
+    try:
+        txt = path.read_text(encoding="utf-8")
+    except Exception:
+        return out
+    if not txt.startswith("---"):
+        return out
+    end = txt.find("\n---", 3)
+    if end == -1:
+        return out
+    for line in txt[3:end].splitlines():
+        if ":" in line:
+            k, _, v = line.partition(":")
+            out[k.strip()] = v.strip()
+    return out
+
+
+def find_existing_capture(tid: str) -> tuple:
+    """INBOX 에서 이 threadId 의 기존 캡처 폴더 탐색 (프론트매터 grep).
+    멱등성 키는 폴더명이 아니라 _thread.md 의 gmail_thread_id. 반환 (폴더|None, message_count|None)."""
+    if not INBOX.exists():
+        return (None, None)
+    for d in sorted(INBOX.iterdir()):
+        if not d.is_dir():
+            continue
+        meta = _read_front(d / "_thread.md")
+        if meta.get("gmail_thread_id") == tid:
+            mc = meta.get("message_count", "")
+            return (d, int(mc) if mc.isdigit() else None)
+    return (None, None)
+
+
 def process_thread(tid: str) -> tuple[bool, str, list[str]]:
     """스레드를 INBOX 의 스레드별 폴더에 캡처: _thread.md(본문) + 첨부 원본.
-    본문은 항상 저장(첨부 없어도 캡처). (ok, msg, 저장된항목목록)."""
+    멱등성(게이트 = threadId + message_count):
+      - 이미 캡처 + 메시지 수 동일 → 파일 재기록 생략 (라벨 정리만; 중복 0)
+      - 메시지 수 변동(새 답장/삭제) → 기존 폴더 비우고 덮어쓰기 (폴더명=불변 스탬프)
+      - 없음 → 신규 캡처 (날짜-우선 폴더)
+    본문은 항상 저장(첨부 없는 본문-only 메일도 캡처). (ok, msg, 항목목록)."""
     staging = STAGING / tid
     staging.mkdir(parents=True, exist_ok=True)
     # --results-only 제거: download 모드는 그게 붙으면 첨부 리스트만 반환 → thread(본문) 유실.
@@ -226,20 +279,34 @@ def process_thread(tid: str) -> tuple[bool, str, list[str]]:
     if result is None:
         return (False, "thread get 실패", [])
     thread = result.get("thread", {}) if isinstance(result, dict) else {}
-    dest_dir = INBOX / thread_folder_name(thread, tid)
+    cur_mc = len(thread.get("messages", []))
+    existing, prev_mc = find_existing_capture(tid)
+
+    # 멱등 skip: 이미 캡처 + 메시지 수 동일 → 재기록 안 함 (라벨 정리는 main 이 수행)
+    if existing is not None and prev_mc is not None and prev_mc == cur_mc:
+        files = [p.name for p in existing.iterdir() if p.is_file()]
+        return (True, "멱등 skip (동일)", files)
+
+    # 갱신이면 기존 폴더 비우고 재사용(폴더명 유지), 신규면 날짜-우선 폴더 생성
+    if existing is not None:
+        for c in existing.iterdir():
+            if c.is_file():
+                c.unlink()
+        dest_dir = existing
+    else:
+        dest_dir = INBOX / thread_folder_name(thread, tid)
     dest_dir.mkdir(parents=True, exist_ok=True)
+
     saved: list[str] = []
-    # 본문 (항상 — 첨부 없는 본문-only 메일도 캡처)
-    (dest_dir / "_thread.md").write_text(build_thread_md(thread), encoding="utf-8")
+    (dest_dir / "_thread.md").write_text(build_thread_md(thread, tid), encoding="utf-8")
     saved.append("_thread.md")
-    # 첨부 (있으면)
     for src, name in extract_attachments(result, staging):
         if not src.exists():
             continue
         dst = unique_dest(dest_dir / name)
         shutil.copy2(src, dst)
         saved.append(dst.name)
-    return (True, "ok", saved)
+    return (True, "갱신(덮어쓰기)" if existing is not None else "ok", saved)
 
 
 # ── main ──────────────────────────────────────────────────────────────────
@@ -281,15 +348,15 @@ def main() -> None:
             n_skip += 1
             print(f"  ↷ [{tid}] skip — {msg} (라벨 유지)")
             continue
-        # 라벨 교체는 저장 성공 후에만 (fail-safe). --remove 는 콤마단일플래그.
+        # 라벨 교체 (멱등 skip 포함 — 잔류 라벨 정리). --remove 는 콤마단일플래그.
         rok, rerr = gog_call("gmail", "labels", "modify", tid,
                              "--add", DONE_LABEL, "--remove", SRC_LABEL)
         if not rok:
             n_skip += 1
-            print(f"  ⚠️ [{tid}] 캡처({len(saved)}항목)됐으나 라벨변경 실패: {rerr}")
+            print(f"  ⚠️ [{tid}] {msg} — 라벨변경 실패: {rerr}")
             continue
         n_ok += 1
-        print(f"  ✅ [{tid}] 캡처 {len(saved)}항목 → '{DONE_LABEL}'  ({', '.join(saved)})")
+        print(f"  ✅ [{tid}] {msg} → '{DONE_LABEL}'  ({', '.join(saved)})")
 
     print(f"🎉 완료: 처리 {n_ok} / 건너뜀 {n_skip} / 총 {len(tids)}")
 

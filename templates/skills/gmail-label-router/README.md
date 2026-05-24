@@ -10,6 +10,7 @@ OpenClaw 용 **커스텀 스킬 예제**. Gmail 라벨이 붙은 메일을 *LLM 
 
 - **판단 0** → 빠르고 watchdog 종료·고아 위험 없음.
 - **fail-safe** → 캡처가 성공한 메일만 라벨을 교체(실패 시 라벨 유지 → 유실 방지).
+- **멱등성** → 같은 스레드(threadId)가 같은 message_count 로 다시 와도 재캡처하지 않음(중복 0). 라벨 교체 실패로 재실행돼도 안전.
 - **thread 단위 + 건별 한 줄 출력** → 출력이 흘러 watchdog 타이머가 리셋됨.
 
 배경 설명: [`docs/openclaw-skills.md`](../../../docs/openclaw-skills.md) 의 "실습 — 라벨 자동화" 절. 이 스킬은 거기서 보여주는 *프롬프트-only 자동화* 의 **결정형 래퍼 버전**이다.
@@ -88,7 +89,7 @@ GMAIL_ROUTER_ACCOUNT=you@gmail.com python3 ~/.openclaw/workspace/skills/gmail-la
 
 ## 알려진 한계
 
-- 캡처 후 **라벨 교체가 실패**하면, 다음 실행 때 같은 스레드가 다시 캡처된다(첨부 파일명은 `_1`, `_2` 로 충돌 회피, `_thread.md` 는 덮어씀). 완전 멱등이 필요하면 캡처 전 처리이력 체크를 추가한다.
+- **멱등성 (threadId + message_count)**: 라벨 교체가 실패해 같은 스레드가 다음 실행에 다시 잡혀도, 메시지 수가 같으면 재캡처하지 않고 **라벨만 정리**한다(중복 0). 메시지 수가 늘면(새 답장) 기존 폴더를 **덮어써 갱신**한다(폴더명은 첫 캡처 날짜 스탬프 유지). 키는 `_thread.md` 프론트매터의 `gmail_thread_id`·`message_count`. *vault 전체* 중복(이미 brainify된 스레드 재유입)은 brainify 단계의 노트 프론트매터 dedup이 담당(별도).
 - 라우트가 **1개**다. 같은 동사(스레드 캡처)로 라벨만 늘리려면 라우트 상수를 늘리고, *다른 동사*(일정 등록·할일 등록 등)가 필요하면 `process_thread` 패턴을 본떠 핸들러를 추가한다.
 
 ## 파일
