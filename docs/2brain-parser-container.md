@@ -18,7 +18,7 @@
 ## 1. 이미지 받기 (빌드 아님 — pull)
 
 ```bash
-docker pull ghcr.io/ai4radmed/2brain-parser:latest
+docker pull ghcr.io/benkorea/2brain-parser:latest
 ```
 
 ## 2. 파싱 실행 (ephemeral)
@@ -73,11 +73,13 @@ $C 2brain-parser diff <docling.md> <mineru.md>
 > 빌드소스(Dockerfile·entrypoint·requirements)는 `2nd-brain-docker/images/brain-pdf/`(공개) 에 있고, 검증된 이미지 `2nd-brain/brain-pdf:<date>` 가 이미 빌드돼 있다. **재빌드는 torch(~843MB) wheel 의 PyTorch CDN 다운로드가 한국망에서 불안정해 막힐 수 있으므로**, 발행은 *기존 검증 이미지를 tag + push* 로 한다 (재빌드 회피):
 > ```bash
 > # 기존 이미지에 2brain-parser CLI 심링크 1줄 얹기 (재빌드·torch 재다운 0)
-> docker run --user root --name _rn 2nd-brain/brain-pdf:<date> \
+> docker run --user root --name rn-parser 2nd-brain/brain-pdf:<date> \
 >            ln -sf /usr/local/bin/brain-pdf /usr/local/bin/2brain-parser
-> docker commit _rn ghcr.io/ai4radmed/2brain-parser:latest && docker rm _rn
-> docker tag ghcr.io/ai4radmed/2brain-parser:latest ghcr.io/ai4radmed/2brain-parser:$(date +%Y.%m.%d)
+> docker commit --change 'USER user' --change 'WORKDIR /home/user/work' \
+>               --change 'CMD ["sleep","infinity"]' \
+>               rn-parser ghcr.io/benkorea/2brain-parser:latest && docker rm rn-parser
+> docker tag ghcr.io/benkorea/2brain-parser:latest ghcr.io/benkorea/2brain-parser:$(date +%Y.%m.%d)
 > echo "$GHCR_PAT" | docker login ghcr.io -u <user> --password-stdin
-> docker push ghcr.io/ai4radmed/2brain-parser --all-tags
+> docker push ghcr.io/benkorea/2brain-parser --all-tags
 > ```
 > 향후 망이 좋을 때 빌드소스를 `2brain-parser` 로 정식 rename·재빌드하면 심링크 브리지는 불필요.

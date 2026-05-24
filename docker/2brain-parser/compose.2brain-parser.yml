@@ -1,7 +1,7 @@
 # compose.2brain-parser.yml — 2brain-parser 문서 파서 (PDF·docx·xlsx → markdown), ghcr pull.
 #
 # 사용자는 ghcr 이미지를 pull (빌드 X). 자세한 안내: docs/2brain-parser-container.md
-#   docker pull ghcr.io/ai4radmed/2brain-parser:latest
+#   docker pull ghcr.io/benkorea/2brain-parser:latest
 #   export UID=$(id -u) GID=$(id -g)
 #   docker compose -f docker/2brain-parser/compose.2brain-parser.yml \
 #                  run --rm 2brain-parser 2brain-parser parse-docling <pdf>
@@ -12,7 +12,7 @@
 
 services:
   2brain-parser:
-    image: ghcr.io/ai4radmed/2brain-parser:${PARSER_VERSION:-latest}
+    image: ghcr.io/benkorea/2brain-parser:${PARSER_VERSION:-latest}
     container_name: 2brain-parser
     user: "${UID:-1000}:${GID:-1000}"
     working_dir: /home/user/work
