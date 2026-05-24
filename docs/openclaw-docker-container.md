@@ -36,14 +36,14 @@ cd ~/projects/openclaw-docker
 
 ## 2. 컨테이너 데이터 폴더 준비
 
-> 컨테이너가 읽고 쓰는 설정·데이터(bind-mount)를 둘 호스트 폴더. 컨테이너 user `node`(uid 1000) 소유로 맞춘다. (데모용 2번째 컨테이너를 둘 거면 그건 별도 폴더 — 예: `~/.openclaw-demo`.)
+> 컨테이너가 읽고 쓰는 설정·데이터(bind-mount)를 둘 호스트 폴더. **운영(production)은 공식 기본 `~/.openclaw`** 를 그대로 쓴다 — 별도 지정 없이 `docker compose up` 만으로 뜨도록(이게 이 가이드의 핵심). 컨테이너 user `node`(uid 1000) 소유로 맞춘다. (데모용 2번째 컨테이너를 둘 거면 그건 별도 폴더 — 예: `~/.openclaw-demo`.)
 
 ```bash
-mkdir -p ~/.openclaw-docker/workspace ~/.openclaw-docker/.claude
+mkdir -p ~/.openclaw/workspace ~/.openclaw/.claude
 ```
 
 ```bash
-sudo chown -R 1000:1000 ~/.openclaw-docker
+sudo chown -R 1000:1000 ~/.openclaw
 ```
 
 ## 3. Claude 자격증명 선반입 (OAuth 방식 — setup 전 필수)
@@ -55,13 +55,13 @@ sudo chown -R 1000:1000 ~/.openclaw-docker
 호스트에 Claude Code 가 있으면 (간단):
 
 ```bash
-CLAUDE_CONFIG_DIR="$HOME/.openclaw-docker/.claude" claude auth login
+CLAUDE_CONFIG_DIR="$HOME/.openclaw/.claude" claude auth login
 ```
 
 없으면 (컨테이너 번들로):
 
 ```bash
-docker run --rm -it -u node -v ~/.openclaw-docker/.claude:/home/node/.claude \
+docker run --rm -it -u node -v ~/.openclaw/.claude:/home/node/.claude \
   --entrypoint /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude \
   ghcr.io/openclaw/openclaw:latest auth login
 ```
@@ -69,23 +69,26 @@ docker run --rm -it -u node -v ~/.openclaw-docker/.claude:/home/node/.claude \
 확인 (파일 생기면 OK):
 
 ```bash
-ls -l ~/.openclaw-docker/.claude/.credentials.json
+ls -l ~/.openclaw/.claude/.credentials.json
 ```
 
 ## 4. 환경변수 export + 셋업 실행
 
 > `setup.sh` 는 `.env` 가 아니라 **셸 환경변수**를 봄 → 반드시 `export`. (`.claude` 마운트가 토큰을 영속화.)
 
+**운영(production)** — 공식 기본값(`~/.openclaw` + 포트 18789/18790)을 그대로 쓰므로 이미지만 지정:
+
 ```bash
 export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:latest"
-export OPENCLAW_CONFIG_DIR=$HOME/.openclaw-docker
-export OPENCLAW_WORKSPACE_DIR=$HOME/.openclaw-docker/workspace
-export OPENCLAW_EXTRA_MOUNTS="$HOME/.openclaw-docker/.claude:/home/node/.claude"
 ```
 
-**첫(운영) 컨테이너는 이 블록 생략** (기본 포트 18789). 같은 머신에 **데모용 2번째 컨테이너**를 추가할 때만 — 운영이 18789 를 점유하므로 — 포트를 재지정:
+**데모용 2번째 컨테이너**를 같은 머신에 추가할 때만 — 운영이 `~/.openclaw`·18789 를 점유하므로 — 별도 폴더 + 포트를 재지정:
 
 ```bash
+export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:latest"
+export OPENCLAW_CONFIG_DIR=$HOME/.openclaw-demo
+export OPENCLAW_WORKSPACE_DIR=$HOME/.openclaw-demo/workspace
+export OPENCLAW_EXTRA_MOUNTS="$HOME/.openclaw-demo/.claude:/home/node/.claude"
 export OPENCLAW_GATEWAY_PORT=18889   # 호스트 18889→컨테이너 18789
 export OPENCLAW_BRIDGE_PORT=18990    # 기본 18790 충돌 방지
 ```
@@ -96,7 +99,7 @@ export OPENCLAW_BRIDGE_PORT=18990    # 기본 18790 충돌 방지
 
 위저드: *personal-by-default* → **Y**, *Setup mode* → **QuickStart**, *Provider* → **Anthropic OAuth (claude-cli)**.
 
-> ⚠️ 출력에 `Config: /home/<you>/.openclaw-docker` 가 보여야 정상. 기본 `~/.openclaw` 나 `Building ... openclaw:local` 이 보이면 env 미전달 → `Ctrl+C` 후 4단계부터 다시.
+> ⚠️ 출력의 `Config:` 가 의도한 폴더(운영=`/home/<you>/.openclaw`, 데모=`...openclaw-demo`)와 일치해야 정상. `Building ... openclaw:local`(ghcr 이미지 대신 로컬 빌드) 이 보이면 `OPENCLAW_IMAGE` 미전달 → `Ctrl+C` 후 4단계부터 다시.
 
 ## 5. PATH fix — 번들 claude 를 PATH 에 노출 (★필수)
 
@@ -109,16 +112,18 @@ cat > ~/projects/openclaw-docker/docker-compose.extra.yml <<EOF
 services:
   openclaw-gateway:
     volumes:
-      - $HOME/.openclaw-docker/.claude:/home/node/.claude
+      - $HOME/.openclaw/.claude:/home/node/.claude
     environment:
       - PATH=/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
   openclaw-cli:
     volumes:
-      - $HOME/.openclaw-docker/.claude:/home/node/.claude
+      - $HOME/.openclaw/.claude:/home/node/.claude
     environment:
       - PATH=/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EOF
 ```
+
+> 같은 `extra.yml` 에 **gog·vault 마운트**(2nd-brain 통합)를 함께 얹는다 — gog config(`~/.config/gogcli-openclaw-container`), vault(`~/projects/2nd-brain-vault`), `GOG_KEYRING_PASSWORD`·`GMAIL_ROUTER_*` env. 단계별: [openclaw-docker-gog.md](./openclaw-docker-gog.md). (데모 컨테이너면 위 `.claude` 경로를 `~/.openclaw-demo/.claude` 로.)
 
 재생성 + 확인:
 
@@ -180,6 +185,52 @@ docker compose -f docker-compose.yml -f docker-compose.extra.yml up -d openclaw-
 
 > ⚠️ **모든 `docker compose` 명령에 `-f docker-compose.yml -f docker-compose.extra.yml` 를 항상 함께** 줄 것 (extra.yml = PATH fix + .claude 마운트). 빠지면 기본값으로 recreate 되며 깨짐.
 
+## 9. 스킬·cron — 무인 자동화 (게이트웨이 cron vs 사이드카)
+
+스킬을 무인 주기 실행하려면 **그 스킬이 브라우저를 쓰는지**에 따라 거처가 갈린다. 게이트웨이 컨테이너(ghcr 이미지)에는 **playwright/chromium 이 없다** — 그래서:
+
+| 스킬 유형 | 예 | 무인 거처 |
+|---|---|---|
+| **텍스트형**(gog API·LLM, 브라우저 X) | `gmail-label-actions`(라벨→GWS 후속작업), `gws-assistant` | **게이트웨이 cron** (컨테이너 안) |
+| **브라우저형**(playwright headed) | `webmail-watch`(anti-headless SPA), `society-watch` | **별도 headed-Xvfb 사이드카** + host 스케줄러 |
+
+### 9a. 게이트웨이 cron — gmail-label-actions (무인 메일 처리)
+
+라벨(1~8) 단 메일을 Calendar/Tasks/Drafts 후속작업으로 완결·캡처. 브라우저 비의존이라 게이트웨이 cron 에서 안전. `~/.openclaw/cron/jobs.json` 에 잡 추가:
+
+```jsonc
+{ "version": 1, "jobs": [{
+  "id": "<uuid>", "agentId": "main", "name": "gmail-label-actions-poll",
+  "enabled": true,
+  "schedule": { "kind": "cron", "expr": "*/30 * * * *" },
+  "sessionTarget": "isolated", "wakeMode": "now",
+  "payload": { "kind": "agentTurn", "message": "/gmail-label-actions" },
+  "delivery": { "mode": "announce", "channel": "telegram", "to": "<chatId>" }
+}]}
+```
+
+반영(8단계 recreate) 후 검증 — **cron CLI 는 게이트웨이 토큰 필요**:
+
+```bash
+GW=$(docker ps --filter name=openclaw-gateway --format '{{.Names}}' | head -1)
+TOK=$(docker exec "$GW" sh -c 'python3 -c "import json;print(json.load(open(\"/home/node/.openclaw/openclaw.json\"))[\"gateway\"][\"auth\"][\"token\"])"')
+docker exec "$GW" node /app/dist/index.js cron list --token "$TOK"   # Next 시각·enabled 확인
+```
+
+> ⚠️ `--token` 없이 `cron list/status` 하면 `gateway token mismatch` 로 거부됨(remote.token 미설정).
+> 동작 검증(비파괴): `docker exec "$GW" sh -c 'cd /home/node/.openclaw/workspace/skills/gmail-label-actions && python3 run.py --dry-run'` — 라벨별 건수만 검색.
+
+### 9b. 브라우저형 사이드카 — webmail-watch (headed-under-Xvfb)
+
+KIRAMS 같은 anti-headless SPA 는 headless 면 빈 shell 백지 → **headed(가상 디스플레이 Xvfb)** 라야 렌더. 게이트웨이엔 브라우저가 없으므로 **별도 사이드카 이미지**(Playwright 공식 이미지 + Xvfb 직접 기동)로 분리하고, **host systemd-timer**(또는 cron)가 1회성 `docker compose run --rm` 으로 주기 호출한다(게이트웨이 cron→docker 는 docker socket 권한상승이라 회피).
+
+자세한 레시피·자산: vault `knowledge/02_areas/brain-system/tools/openclaw/webmail-sidecar/`. 핵심:
+
+```bash
+# host systemd-user 타이머 (예: 평일 08-18시 매시)
+systemctl --user enable --now openclaw-webmail-sidecar.timer
+```
+
 ---
 
 ## 초기 설정 시 반드시 검토 (모델·watchdog·하트비트·thinking)
@@ -190,7 +241,7 @@ docker compose -f docker-compose.yml -f docker-compose.extra.yml up -d openclaw-
 ```bash
 python3 - <<'PY'
 import json, pathlib
-f = pathlib.Path.home()/".openclaw-docker/openclaw.json"
+f = pathlib.Path.home()/".openclaw/openclaw.json"
 d = json.loads(f.read_text())
 d["agents"]["defaults"]["model"]["primary"] = "anthropic/claude-haiku-4-5"  # 추론 필요시 sonnet-4-6
 d["agents"]["defaults"]["heartbeat"] = {"every": "0m"}                       # 3번 하트비트 off
@@ -231,7 +282,7 @@ claude-side 에 손댈 노브가 없으므로 **OpenClaw 가 stall 을 감지(wa
 ```bash
 python3 - <<'PY'
 import json, pathlib
-f = pathlib.Path.home()/".openclaw-docker/openclaw.json"
+f = pathlib.Path.home()/".openclaw/openclaw.json"
 d = json.loads(f.read_text())
 defs = d["agents"]["defaults"]
 
@@ -300,8 +351,11 @@ OpenClaw 텔레그램은 수신 메시지를 spool(`<config>/telegram/ingress-sp
 | 봇·`/new` 모두 묵묵부답, webhook pending=0 인데 응답 없음 | stall 이 텔레그램 spool 을 wedge — 신뢰성 섹션 "spool-wedge" 복구 절차 |
 | CLI 가 `gateway closed (1006)` (추가 컨테이너 병행 시) | `docker compose run` 대신 `docker exec -e OPENCLAW_GATEWAY_PORT=18789 "$GW" node dist/index.js <cmd>` |
 | 컨테이너 `address already in use :18789` (추가 컨테이너 병행 시) | 4단계 `OPENCLAW_GATEWAY_PORT`/`OPENCLAW_BRIDGE_PORT` 재지정 후 재시도 |
-| `EACCES /home/node/.openclaw` | `sudo chown -R 1000:1000 ~/.openclaw-docker` |
+| `EACCES /home/node/.openclaw` | `sudo chown -R 1000:1000 ~/.openclaw` (데모면 `~/.openclaw-demo`) |
 | 이미지 빌드 OOM (exit 137) | RAM 2GB+ 필요 |
+| gog `aes.KeyUnwrap(): integrity check failed` | `GOG_KEYRING_PASSWORD` 가 **gog 키링** 비번과 불일치. gog 키링(`~/.config/gogcli-openclaw-container/keyring`)은 OpenClaw 자체 credentials 와 **별개 비번** — 그 키링을 만든 비번을 줘야 함 |
+| `cron list`/`status` 가 `gateway token mismatch` | `--token <gateway.auth.token>` 전달 (9a 참조). remote.token 미설정이라 CLI 가 인증 못 함 |
+| 브라우저형 스킬(webmail-watch·society-watch) cron 이 게이트웨이서 실패 | 게이트웨이 이미지에 playwright/chromium **없음** — 게이트웨이 cron 대상 아님. **사이드카로 분리**(9b 참조) |
 
 > 진단 팁: `OPENCLAW_DEBUG=1 OPENCLAW_CLI_BACKEND_LOG_OUTPUT=1` 를 environment 에 넣어 재생성하면 백엔드 stdout/stderr·`cli argv` 가 로그에 보임.
 
