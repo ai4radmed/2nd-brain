@@ -13,12 +13,12 @@ OpenClaw 용 **커스텀 스킬 예제**. Gmail 라벨이 붙은 메일을 *LLM 
 - **멱등성** → 같은 스레드(threadId)가 같은 message_count 로 다시 와도 재캡처하지 않음(중복 0). 라벨 교체 실패로 재실행돼도 안전.
 - **thread 단위 + 건별 한 줄 출력** → 출력이 흘러 watchdog 타이머가 리셋됨.
 
-배경 설명: [`docs/openclaw-skills.md`](../../../docs/openclaw-skills.md) 의 "실습 — 라벨 자동화" 절. 이 스킬은 거기서 보여주는 *프롬프트-only 자동화* 의 **결정형 래퍼 버전**이다.
+배경 설명: [`docs/openclaw-skills.md`](../../../../docs/openclaw-skills.md) 의 "실습 — 라벨 자동화" 절. 이 스킬은 거기서 보여주는 *프롬프트-only 자동화* 의 **결정형 래퍼 버전**이다.
 
 ## 전제
 
-- **OpenClaw 게이트웨이** 가동 중 ([`docs/openclaw-docker-container.md`](../../../docs/openclaw-docker-container.md)).
-- **gog CLI** 설치 + 본인 Gmail 계정 인증 완료 ([`docs/openclaw-docker-gog.md`](../../../docs/openclaw-docker-gog.md)).
+- **OpenClaw 게이트웨이** 가동 중 ([`docs/openclaw-docker-container.md`](../../../../docs/openclaw-docker-container.md)).
+- **gog CLI** 설치 + 본인 Gmail 계정 인증 완료 ([`docs/openclaw-docker-gog.md`](../../../../docs/openclaw-docker-gog.md)).
 - Python 3.
 
 ## 적용 (2곳만 본인 환경에 맞게)
@@ -33,7 +33,7 @@ OpenClaw 용 **커스텀 스킬 예제**. Gmail 라벨이 붙은 메일을 *LLM 
 OpenClaw 는 `~/.openclaw/workspace/skills/<이름>/` 에서 스킬을 로드한다. 이 폴더를 그대로 복사:
 
 ```bash
-cp -r templates/skills/gmail-label-router ~/.openclaw/workspace/skills/
+cp -r templates/skills/openclaw/gmail-label-router ~/.openclaw/workspace/skills/
 ```
 
 > Docker 컨테이너로 운영 중이면, 워크스페이스가 마운트된 호스트 경로(예: `~/.openclaw-docker/workspace/skills/`)에 복사한다. 복사 후 게이트웨이가 스킬을 다시 스캔하도록 `skills list` 로 확인.
@@ -63,7 +63,7 @@ env 를 **어디에 넣느냐는 실행 방식에 따라 다릅니다.**
    ```
 
 > ⚠️ **2nd-brain repo 안에는 계정을 넣지 마세요** — 공개 repo 라 commit 시 누출됩니다. 계정은 컨테이너 `.env`(repo 밖)에만.
-> ⚠️ 이 계정은 **gog 인증 계정과 일치**해야 합니다 ([gog 설치](../../../docs/openclaw-docker-gog.md)). 다르면 `OAuth client credentials missing` 류로 실패합니다.
+> ⚠️ 이 계정은 **gog 인증 계정과 일치**해야 합니다 ([gog 설치](../../../../docs/openclaw-docker-gog.md)). 다르면 `OAuth client credentials missing` 류로 실패합니다.
 
 ### 수동 CLI 테스트 (네이티브 또는 컨테이너 안)
 
