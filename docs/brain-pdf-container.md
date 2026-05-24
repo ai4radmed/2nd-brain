@@ -86,17 +86,20 @@ docker compose -f compose.brain-pdf.yml run --rm brain-pdf diff <docling.md> <mi
 
 ## 메인테이너 — ghcr 이미지 빌드·발행
 
-사용자는 pull 만. **이미지 발행은 메인테이너가** (GPU 데스크탑 권장):
+사용자는 pull 만 — **이 repo(2nd-brain)엔 빌드소스가 없다**(pull-compose + 이 문서뿐). **이미지 빌드·발행은 메인테이너가** (GPU 데스크탑 권장), 빌드소스는 **`2nd-brain-docker/images/brain-pdf/`**(ai4radmed 공개):
 
 ```bash
-# 빌드 (소스: 이 repo docker/brain-pdf/)
-docker build -t ghcr.io/ai4radmed/brain-pdf:$(date +%Y.%m.%d) -t ghcr.io/ai4radmed/brain-pdf:latest docker/brain-pdf
+# 빌드 (소스 = 2nd-brain-docker, 이 repo 아님)
+docker build -t ghcr.io/ai4radmed/brain-pdf:$(date +%Y.%m.%d) \
+             -t ghcr.io/ai4radmed/brain-pdf:latest \
+             ~/projects/2nd-brain-docker/images/brain-pdf
 # ghcr 로그인 (PAT: write:packages)
 echo "$GHCR_PAT" | docker login ghcr.io -u <user> --password-stdin
 docker push ghcr.io/ai4radmed/brain-pdf --all-tags
 ```
 
-> 빌드 소스(Dockerfile·entrypoint·requirements)는 `docker/brain-pdf/`. uid 는 굽지 않음(런타임 `user:`).
+> ⚠️ prebuilt 이식성을 위해 빌드 전 Dockerfile 의 **uid 베이킹 제거** 필요 (`useradd -u $UID` ARG → 고정 uid 1000). 런타임은 compose `user: ${UID}:${GID}` 로 오버라이드.
+> 빌드소스가 `2nd-brain-docker`(박물관)에 있는 게 거슬리면 별도 build repo 로 옮기는 건 후속 결정 — pull UX 와는 무관.
 
 ## 다음
 
