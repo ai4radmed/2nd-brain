@@ -1,0 +1,31 @@
+# compose.brain-pdf.yml — brain-pdf 문서 파서 (PDF·docx·xlsx → markdown), pull 기반.
+#
+# 사용자는 ghcr 이미지를 pull 만 (빌드 X). 자세한 안내: docs/brain-pdf-container.md
+#   docker pull ghcr.io/ai4radmed/brain-pdf:latest
+#   export UID=$(id -u) GID=$(id -g)
+#   docker compose -f docker/brain-pdf/compose.brain-pdf.yml run --rm brain-pdf parse-docling <pdf>
+#
+# GPU(수식 PDF): -f compose.brain-pdf.gpu.yml 오버레이 추가 (docs 참조).
+# 첫 실행 시 HF 모델 ~5GB 가 brain-pdf-models 볼륨에 다운로드(영속).
+
+services:
+  brain-pdf:
+    image: ghcr.io/ai4radmed/brain-pdf:${BRAIN_PDF_VERSION:-latest}
+    container_name: brain-pdf
+    user: "${UID:-1000}:${GID:-1000}"          # 런타임 uid (prebuilt 는 uid 굽지 않음)
+    working_dir: /home/user/work
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HF_HOME: /home/user/.cache/huggingface
+      TRANSFORMERS_OFFLINE: "0"                # 첫 실행 모델 다운로드 허용 (이후 offline 가능)
+    stdin_open: true
+    tty: true
+    volumes:
+      - ${SB_DATA:-${HOME}/projects/2nd-brain-vault}:/home/user/projects/2nd-brain-vault
+      - brain-pdf-models:/home/user/.cache/huggingface
+    command: ["sleep", "infinity"]             # 데몬 default; `run` 으로 override
+
+volumes:
+  brain-pdf-models:
