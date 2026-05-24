@@ -1,4 +1,4 @@
-# 2brain-parser — 문서 파서 컨테이너 (PDF·docx·xlsx → markdown)
+# 2brain-parser — 문서 파서 컨테이너 (PDF·docx·xlsx·hwp/hwpx → markdown)
 
 > 붙여넣기용 명령 + 최소 이유. openclaw-docker 처럼 **컨테이너로 띄워 쓰는** 도구다.
 > 역할: 첨부 바이너리(PDF 등)를 **로컬에서 markdown 으로 파싱** → brainify(요약·분류)의 *선행 파서*.
@@ -27,9 +27,12 @@ docker pull ghcr.io/benkorea/2brain-parser:latest
 export UID=$(id -u) GID=$(id -g)
 C="docker compose -f docker/2brain-parser/compose.2brain-parser.yml run --rm 2brain-parser"
 $C 2brain-parser parse-docling <PDF경로>
+$C 2brain-parser parse-docling <HWP경로>          # hwp/hwpx → LibreOffice 로 docx 자동변환 후 Docling
 $C 2brain-parser parse-mineru  <PDF경로>          # PDF 듀얼 체크
 $C 2brain-parser diff <docling.md> <mineru.md>
 ```
+
+> **한글(hwp/hwpx)**: `parse-docling` 에 `.hwp/.hwpx` 를 그대로 주면 내부에서 **LibreOffice+H2Orestart 로 docx 변환 후 Docling** 파싱한다(출력 JSON `via: hwp→docx→docling`). PDF 경유는 한글 글리프가 깨져 *쓰지 않는다*(실측). 본문 속 *이미지 안 글자*는 별도 OCR 영역.
 
 > `2brain-parser` 가 두 번 나오는 건 정상 — 앞은 compose **서비스명**, 뒤는 **CLI 명령**이다 (`docker compose run <service> <command>`).
 
