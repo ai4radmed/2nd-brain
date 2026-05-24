@@ -297,7 +297,7 @@ docker run --rm -v 2nd-brain-docker_claude-state:/state -v "$PWD":/backup alpine
 
 - `README.md` — 첫 셋업 및 일상 사용
 - `docs/openclaw-setup.md` — OpenClaw 셋업 (다른 도구의 동일 패턴)
-- `docs/syncthing-setup.md` — vault 동기 (호스트 측 인프라)
+- `docs/multi-device-sync.md` — vault 동기 (호스트 측 인프라)
 - `docs/gogcli-container-setup.md` — gog 의 컨테이너 격리 (Option B)
 - `2nd-brain-vault/knowledge/02_areas/brain-system/tools/claude-code/notes/claude-code-devcontainer.md` — Anthropic 공식 devcontainer 패턴 비교 (vault, 비공개)
 - `scripts/bin/sb-healthcheck` — 3-way 일치 검증 도구

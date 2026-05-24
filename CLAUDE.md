@@ -44,9 +44,11 @@
 |---|---|
 | 컴포넌트 설치 절차 | 이 repo `docs/` |
 | 운영 방법론 (PARA·companion note·brainify) | 이 repo `methodology/` |
+| 다기기 동기 — 전략·실행 | 전략·카테고리 = 이 repo `methodology/setup/prerequisite-repos.md`, 실행 절차(git+SyncThing) = `docs/multi-device-sync.md`. **실제 repo 목록 권위 = vault `repos.md`**, 일괄 실행 = 슬래시 명령 `/git-routine` |
 | 데이터 운영 규약 | `2nd-brain-vault/CLAUDE.md` (얇은 layer + 본 repo `@`-import) |
 | OpenClaw 자체 (이미지·CLI·설치 스크립트) | 공식 <https://docs.openclaw.ai> |
 
 ## 메타
 
-- `2nd-brain-setup` 에서 rename (2026-05-23). 동시에 구 `2nd-brain-vault-guide` 의 방법론·템플릿·config 를 흡수 — 공개 저장소 둘을 하나의 단일 입구로 통합. (vault-guide 는 이관·검증 후 폐기 예정.)
+- `2nd-brain-setup` 에서 rename (2026-05-23). 동시에 구 `2nd-brain-vault-guide` 의 방법론·템플릿·config 를 흡수 — 공개 저장소 둘을 하나의 단일 입구로 통합.
+- 2026-05-25 — `2nd-brain-docker`(docker 실행자산: openclaw-gateway 이미지·compose·2brain-parser·scripts·docs)도 `docker/`·`docs/` 로 흡수. `2nd-brain-vault-guide`·`2nd-brain-docker` 로컬 삭제(고유 자산 0 확인) → **공개 운영층 단일 `2nd-brain` 통합 완료**. (GitHub repo 2개 삭제는 `delete_repo` scope 필요 — 별도.)

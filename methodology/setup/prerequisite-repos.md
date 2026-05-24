@@ -13,8 +13,7 @@
 | 카테고리 | 역할 | 일반적 위치 | 일반적 가시성 | 일반적 동기 |
 |---|---|---|---|---|
 | **vault** | 실제 PKM 데이터 (knowledge + sources). 본인의 노트·원본 자료. | `~/projects/2nd-brain-vault` | 비공개 | SyncThing + 클라우드 (git 비친화적 — 대용량 바이너리·잦은 변경) |
-| **vault-guide** *(본 저장소)* | 운영 방법론·템플릿·빈 PARA 골격. 일반화된 매뉴얼. | `~/projects/2nd-brain-vault-guide` | 공개 | git |
-| **docker 환경** | 격리 실행환경 (Claude CLI · Gemini · OpenClaw · MCP 서버) 컨테이너. | `~/projects/2nd-brain-docker` | 공개 가능 | git |
+| **공개 운영층** *(본 저장소 `2nd-brain`)* | 설치문서·운영 방법론·템플릿·빈 PARA 골격 + 격리 실행환경(docker compose·이미지·entrypoint) 을 **단일 공개 repo** 로 통합. (2026-05-25 구 `2nd-brain-vault-guide`·`2nd-brain-docker` 흡수.) | `~/projects/2nd-brain` | 공개 | git |
 | **Claude Code 슬래시 명령** | 자기 워크플로우 슬래시 명령 모음 (예: `/git-routine`). | `~/.claude/commands` | 보통 비공개 — 개인 운영 패턴이 드러남 | git |
 | **Claude Code 스킬** | 자기 skill 정의 모음. | `~/.claude/skills` | 보통 비공개 | git |
 | **OpenClaw 설정** | `openclaw.json` 등 control plane 설정 권위 원본. | `~/projects/openclaw-config` 또는 유사 | **비공개 필수** — 토큰·인증 정보 포함 가능 | git |
@@ -35,7 +34,7 @@
 
 | 카테고리 | 경로 | 원격 | 역할 | 가시성 | 동기 |
 |---|---|---|---|---|---|
-| docker | `~/projects/2nd-brain-docker` | (자기 fork URL) | 격리 실행환경 | 공개 | git |
+| 2nd-brain | `~/projects/2nd-brain` | (자기 공개 repo URL) | 공개 운영층 (설치문서·방법론·docker 자산) | 공개 | git |
 | openclaw-config | `~/projects/openclaw-config` | (자기 private repo URL) | OpenClaw 설정 | 비공개 | git |
 | ... | ... | ... | ... | ... | ... |
 
@@ -43,7 +42,7 @@
 
 ## 새 PC 셋업 시 흐름
 
-1. 본 카테고리 표를 보고 자기에게 필요한 항목 결정 (vault·docker·vault-guide 는 거의 필수, 나머지는 선택).
+1. 본 카테고리 표를 보고 자기에게 필요한 항목 결정 (vault·`2nd-brain` 공개 운영층은 거의 필수, 나머지는 선택).
 2. 각 카테고리의 실제 fork·자기 repo URL 을 정해 clone.
 3. 자기 vault 의 `knowledge/02_areas/brain-system/repos.md` 에 인스턴스 표 채우기 (없으면 생성).
 4. 자기 `~/.claude/commands/` 에 `git-routine.md` 같은 일괄 동기 명령 두기 (선택).
@@ -51,3 +50,4 @@
 ## 메타
 
 - 2026-05-12 — 최초 생성. 누락 방지 인벤토리 분업 (방법론은 vault-guide, 인스턴스는 vault) 패턴 확립.
+- 2026-05-25 — **공개층 단일 `2nd-brain` repo 통합 반영**. 구 `2nd-brain-vault-guide`(방법론·이 문서의 옛 거처)·`2nd-brain-docker`(실행자산)를 `ai4radmed/2nd-brain` 으로 흡수 → 카테고리 표의 두 행을 "공개 운영층(`2nd-brain`)" 한 행으로 병합. 인스턴스/실행 분업은 불변: 실제 목록은 여전히 vault `repos.md`, 실행은 `/git-routine`.

@@ -553,4 +553,4 @@ echo 'source ~/.clawdock/clawdock-helpers.sh' >> ~/.bashrc && exec bash
 - 공식 docs 오프라인 미러 (검색·grep 용): `2nd-brain-vault/knowledge/02_areas/brain-system/tools/openclaw/mirror/`
 - vault 운영 규약: `2nd-brain-vault/CLAUDE.md`
 - 짝 도구 (결정형 백엔드): `2nd-brain-vault/knowledge/02_areas/brain-system/tools/gogcli/README.md`
-- 컨테이너 동기화 가이드: `docs/syncthing-setup.md`
+- 컨테이너 동기화 가이드: `docs/multi-device-sync.md`

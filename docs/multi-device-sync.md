@@ -1,11 +1,25 @@
-# Syncthing 셋업 — 2nd-brain-vault 동기
+# 다기기 동기 — 2nd-brain 시스템
 
-새 머신에 vault 동기를 셋업할 때 따라가는 실행 가이드.
+여러 기기에서 2nd-brain 시스템을 동기화하는 실행 가이드. 자산 성격에 따라 **두 메커니즘**으로 나뉜다.
 
-## 목적·범위
+## 두 동기 메커니즘
 
-- **무엇을 다루는가**: WSL2 ↔ Windows Syncthing 페어링 + Drive for Desktop 연계 + 표준 .stignore 적용
-- **무엇을 안 다루는가**: 왜 이 아키텍처를 채택했는지의 결정 근거 — `2nd-brain-vault/knowledge/02_areas/brain-system/research/2026-05-04_sync-architecture-roadmap.md` 참조
+| 자산 | 메커니즘 | 실행 | 대상 권위 |
+|---|---|---|---|
+| **코드·설정·스킬** (`2nd-brain`·`openclaw-config`·`openclaw-workspace`·Claude Code commands·skills) | **git** | 슬래시 명령 `/git-routine` (fetch→pull→dirty commit+push) | vault `knowledge/02_areas/brain-system/repos.md` (실제 목록) |
+| **vault 데이터** (`2nd-brain-vault` — 노트·원본 바이너리) | **SyncThing + Drive for Desktop** | 아래 §vault 동기 절차 | — |
+
+- **왜 둘로 나누나**: 코드·설정은 변경이 의미 단위라 git 이 자연스럽고, vault 는 대용량 바이너리·잦은 변경·비공개라 git 비친화 → SyncThing+클라우드. 전략·카테고리 일반 원칙은 [methodology/setup/prerequisite-repos.md](../methodology/setup/prerequisite-repos.md), 결정 근거는 vault `knowledge/02_areas/brain-system/research/2026-05-04_sync-architecture-roadmap.md`.
+
+## Git 자산 동기 (코드·설정·스킬)
+
+- **새 머신 clone**: 대상 repo 목록·clone 명령은 vault `repos.md` §새 PC 셋업 (권위 인벤토리). 카테고리·가시성 일반 원칙은 [prerequisite-repos.md](../methodology/setup/prerequisite-repos.md).
+- **일상 동기**: Claude Code 에서 `/git-routine sync` — `repos.md` 인벤토리를 읽어 in-routine repo 전체를 fetch→pull→(dirty)commit+push. `pull`·`status` 인자로 범위 조절. **어느 폴더에서 실행해도 동일**(전역 슬래시 명령 + `repos.md` 절대경로 — CWD 무관).
+- **skill 동기 = 그 일부**: `~/.openclaw/workspace`(openclaw skills)·`~/.claude/skills`·`~/.claude/commands`(Claude Code 슬래시 명령·스킬) 가 in-routine 에 포함.
+
+## vault 동기 (SyncThing + Drive for Desktop)
+
+새 머신에 vault(`2nd-brain-vault`) 동기를 셋업할 때 따라가는 절차. (다루는 것: WSL2 ↔ Windows Syncthing 페어링 + Drive for Desktop 연계 + 표준 .stignore. 채택 근거: vault `research/2026-05-04_sync-architecture-roadmap.md`.)
 
 ## 전제
 
