@@ -12,4 +12,4 @@ cp -r templates/skills/claude-code/<skill> ~/.claude/skills/
 
 ## 예정
 
-- **brainify (thread)** — `sources/00_inbox/` 의 캡처(`_thread.md` + 첨부)를 읽어 PARA 분류·동반 노트 생성, threadId frontmatter 로 vault-wide dedup. 정규 무인은 cron → `claude -p`, 수동은 Claude Code 세션. (gmail-label-router 가 캡처 → 이 스킬이 brainify 의 분업)
+- **brainify (thread)** — `sources/00_inbox/` 의 캡처(`_thread.md` + 첨부)를 읽어 PARA 분류·동반 노트 생성, threadId frontmatter 로 vault-wide dedup. 정규 무인은 cron → `claude -p`, 수동은 Claude Code 세션. (gmail-label-actions 가 캡처 → 이 스킬이 brainify 의 분업)

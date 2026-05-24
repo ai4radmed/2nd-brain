@@ -200,9 +200,9 @@ gog 로 라벨 "데모3 할일등록" 메일을 처리해줘. 계정 기본값.
 - 무인 반복 신뢰성은 프롬프트 품질·완료조건 명확성에 의존 → 안정 운영엔 결정형 래퍼 권장.
 - **자연 멱등**: 처리한 메일은 트리거 라벨이 제거돼 다음 실행 검색에 안 잡힘.
 
-### 결정형 래퍼 예제 — `gmail-label-router`
+### 결정형 래퍼 예제 — `gmail-label-actions`
 
-위 프롬프트-only 방식의 신뢰성 한계를 넘으려면 *절차를 코드로 박은* 커스텀 스킬을 쓴다. 그 실제 예제가 [`templates/skills/openclaw/gmail-label-router/`](../templates/skills/openclaw/gmail-label-router/) 에 있다 — `[1] 저장` 프롬프트를 **LLM 판단 0 의 Python 래퍼**로 옮긴 버전이다(빠르고 watchdog 종료·고아 위험 없음). 적용은 계정(env)·저장경로 2곳만 본인 환경에 맞게 고친 뒤 `~/.openclaw/workspace/skills/` 로 복사. 설치·적응법은 그 폴더의 [README](../templates/skills/openclaw/gmail-label-router/README.md). (스킬 템플릿의 OpenClaw/Claude Code 런타임 구분은 [`templates/skills/README.md`](../templates/skills/README.md))
+위 프롬프트-only 방식의 신뢰성 한계를 넘으려면 *절차를 코드로 박은* 커스텀 스킬을 쓴다. 그 실제 예제가 [`templates/skills/openclaw/gmail-label-actions/`](../templates/skills/openclaw/gmail-label-actions/) 에 있다 — `[1] 저장` 프롬프트를 **LLM 판단 0 의 Python 래퍼**로 옮긴 버전이다(빠르고 watchdog 종료·고아 위험 없음). 적용은 계정(env)·저장경로 2곳만 본인 환경에 맞게 고친 뒤 `~/.openclaw/workspace/skills/` 로 복사. 설치·적응법은 그 폴더의 [README](../templates/skills/openclaw/gmail-label-actions/README.md). (스킬 템플릿의 OpenClaw/Claude Code 런타임 구분은 [`templates/skills/README.md`](../templates/skills/README.md))
 
 ## 데모로 보여주기 좋은 것
 
