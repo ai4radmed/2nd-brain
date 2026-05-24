@@ -1,0 +1,15 @@
+# Docling + MinerU dual PDF parser. CPU inference, host downloads model
+# weights to HuggingFace cache (mounted volume `brain-pdf-models`) on first run.
+#
+# Exact pinned versions captured at P1.4 / P1.5 after first successful install
+# (run `pip freeze` inside the container and pin here).
+docling
+# mineru extras [pipeline,vlm] pull in albumentations/ftfy (pipeline) and tighten
+# the transformers constraint to <5.0.0 (both extras). Without the extras, the
+# pipeline backend fails at runtime: `ModuleNotFoundError: albumentations` from
+# UnimerSwinImageProcessor. mineru 3.1.x bundled unimernet + mineru-vl-utils
+# also call transformers v4 APIs (find_pruneable_heads_and_indices,
+# Qwen2VLConfig.max_position_embeddings) that were removed in transformers v5,
+# so the redundant explicit pin below pre-empts pip resolver drift.
+mineru[pipeline,vlm]
+transformers>=4.57.3,<5.0.0

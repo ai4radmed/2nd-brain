@@ -1,0 +1,23 @@
+# compose.brain-pdf.gpu.yml — GPU passthrough 오버레이 (수식 포함 학술 PDF용).
+#
+# 수동 오버레이로 추가:
+#   docker compose -f docker/brain-pdf/compose.brain-pdf.yml \
+#                  -f docker/brain-pdf/compose.brain-pdf.gpu.yml \
+#                  run --rm brain-pdf parse-mineru <pdf>
+#
+# 전제 (NVIDIA 호스트 1회 셋업):
+#   1. WSL2 안 nvidia-smi 정상 (RTX + Driver + CUDA)
+#   2. nvidia-container-toolkit 설치 + docker runtime 등록
+#      (sudo nvidia-ctk runtime configure --runtime=docker + restart)
+#   3. `docker run --rm --gpus all nvidia/cuda:12.x-base nvidia-smi` 통과
+# CPU 만으로 충분한 경우(회계·일반 문서)는 이 오버레이 불필요.
+
+services:
+  brain-pdf:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
