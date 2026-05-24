@@ -1,4 +1,4 @@
-# 2brain-parser — 문서 파서 컨테이너 (PDF·docx·xlsx·hwp/hwpx → markdown)
+# 2brain-parser — 문서 파서 컨테이너 (PDF·Office·한글·레거시 → markdown)
 
 > 붙여넣기용 명령 + 최소 이유. openclaw-docker 처럼 **컨테이너로 띄워 쓰는** 도구다.
 > 역할: 첨부 바이너리(PDF 등)를 **로컬에서 markdown 으로 파싱** → brainify(요약·분류)의 *선행 파서*.
@@ -32,7 +32,11 @@ $C 2brain-parser parse-mineru  <PDF경로>          # PDF 듀얼 체크
 $C 2brain-parser diff <docling.md> <mineru.md>
 ```
 
-> **한글(hwp/hwpx)**: `parse-docling` 에 `.hwp/.hwpx` 를 그대로 주면 내부에서 **LibreOffice+H2Orestart 로 docx 변환 후 Docling** 파싱한다(출력 JSON `via: hwp→docx→docling`). PDF 경유는 한글 글리프가 깨져 *쓰지 않는다*(실측). 본문 속 *이미지 안 글자*는 별도 OCR 영역.
+> **지원 포맷** (모두 `parse-docling` 한 명령):
+> - **PDF·docx·pptx·xlsx** → Docling 직접.
+> - **hwp/hwpx · 구 바이너리(doc/ppt/xls) · odf(odt/odp/ods)** → 내부에서 **LibreOffice 로 모던 OOXML(docx/pptx/xlsx) 변환 후 Docling**. 출력 JSON `via:` 에 경로 표시 (예: `hwp→docx→docling`, `xls→xlsx→docling`). 변환은 확장자별 자동 dispatch.
+> - **PDF 경유 안 함** — CJK 글리프 매핑이 깨져 텍스트 추출 불가(실측). 그림 속 글자는 별도 OCR 영역.
+> - 검증됨: pdf·docx·pptx·xlsx·hwp·xls(레거시). doc/ppt(레거시)는 동일 dispatch 경로.
 
 > `2brain-parser` 가 두 번 나오는 건 정상 — 앞은 compose **서비스명**, 뒤는 **CLI 명령**이다 (`docker compose run <service> <command>`).
 
