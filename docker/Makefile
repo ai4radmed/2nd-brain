@@ -1,6 +1,6 @@
 .PHONY: sync clean \
         build-brain-pdf up-brain-pdf down-brain-pdf shell-brain-pdf run-brain-pdf \
-        build-openclaw up-openclaw down-openclaw restart-openclaw logs-openclaw shell-openclaw install-systemd-openclaw
+        build-openclaw up-openclaw down-openclaw restart-openclaw logs-openclaw shell-openclaw
 
 UID := $(shell id -u)
 GID := $(shell id -g)
@@ -80,14 +80,3 @@ logs-openclaw:
 
 shell-openclaw:
 	docker exec -it sb-openclaw /bin/bash
-
-# 부팅 자동기동 (compose restart:unless-stopped + Docker daemon autostart 가
-# 1차. systemd-user 유닛은 boot 시 `compose up -d` 를 한 번 보장하는 보강).
-install-systemd-openclaw:
-	install -d $(HOME)/.config/systemd/user
-	install -m 0644 scripts/sb-openclaw.service $(HOME)/.config/systemd/user/sb-openclaw.service
-	systemctl --user daemon-reload
-	systemctl --user enable --now sb-openclaw.service
-	@echo
-	@echo "Boot persistence requires (one-time, sudo):"
-	@echo "    sudo loginctl enable-linger $$USER"
