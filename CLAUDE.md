@@ -19,7 +19,6 @@
 | `docs/` | 컴포넌트 설치 절차 (OpenClaw Docker 컨테이너·gog·기본 스킬) |
 | `methodology/` | PARA·CODE·브레인화·동반 노트 등 운영 방법론 (vault 의 얇은 `CLAUDE.md` 가 `@`-import 하는 대상) |
 | `templates/` | `vault-skeleton/` (빈 PARA 골격) + 노트 템플릿 |
-| `claude-config/` | Claude Code 설정 동기 layer (memory·commands·skills 의 공개 일반화분) |
 | `bootstrap.sh` | 새 vault 생성 — 골격 복사 + 얇은 `CLAUDE.md` 로더 생성 + git init (멱등·안전장치) |
 
 ## 사용 흐름

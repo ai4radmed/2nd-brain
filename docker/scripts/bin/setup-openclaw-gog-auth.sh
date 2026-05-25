@@ -12,9 +12,8 @@
 # INTERACTIVE: `gog auth add` opens a browser OAuth consent. Run it yourself
 # from the session prompt:   ! bash ~/projects/2nd-brain-docker/scripts/bin/setup-openclaw-gog-auth.sh
 #
-# Verified against gog v0.13.0 (the syntax in docs/gogcli-container-setup.md
-# is stale: it is `auth credentials set <path> --client`, not `add
-# --client-secret`).
+# Verified against gog v0.13.0: the correct syntax is
+# `auth credentials set <path> --client`, not `add --client-secret`.
 set -euo pipefail
 
 ACCOUNT="${1:-kimbi.kirams@gmail.com}"   # gog account — NOT benkorea.ai

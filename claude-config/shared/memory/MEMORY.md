@@ -1,2 +1,0 @@
-- [낯선 이름은 먼저 웹검색, 함부로 부정 말 것](feedback-knowledge-cutoff-humility.md) — 지식 컷오프 이후 등장한 도구·이벤트 응대 원칙
-- [사용자 과거 판단은 재진단하지 말 것](feedback-respect-past-diagnosis.md) — 확정된 제약을 매 세션 다시 풀려 들지 말기
