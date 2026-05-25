@@ -1,6 +1,7 @@
 .PHONY: clean \
         up-parser down-parser shell-parser run-parser \
-        up-openclaw down-openclaw restart-openclaw logs-openclaw shell-openclaw
+        up-openclaw down-openclaw restart-openclaw logs-openclaw shell-openclaw \
+        install-parser-drain
 
 UID := $(shell id -u)
 GID := $(shell id -g)
@@ -64,3 +65,15 @@ logs-openclaw:
 
 shell-openclaw:
 	docker exec -it 2nd-brain-openclaw-gateway /bin/bash
+
+# ── parser-drain (host systemd 자동 파싱 — watchdog 밖, concurrency=1) ────────
+# 게이트웨이는 파일만 드롭, host 가 트리거·실행. 상세: docs/2nd-brain-parser-strategy.md.
+install-parser-drain:
+	install -d $(HOME)/.config/systemd/user
+	install -m 0644 parser-drain/parser-drain.service $(HOME)/.config/systemd/user/
+	install -m 0644 parser-drain/parser-drain.timer   $(HOME)/.config/systemd/user/
+	chmod +x parser-drain/parser-drain.sh
+	systemctl --user daemon-reload
+	@echo
+	@echo "활성화: systemctl --user enable --now parser-drain.timer"
+	@echo "부팅영속(1회 sudo): sudo loginctl enable-linger $$USER"

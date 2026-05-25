@@ -1,0 +1,8 @@
+[Unit]
+Description=2nd-brain parser drain (host, watchdog-free)
+After=docker.service
+# 게이트웨이(openclaw) agent-turn 밖에서 결정형 파싱 — docker socket 미노출.
+
+[Service]
+Type=oneshot
+ExecStart=%h/projects/2nd-brain/docker/parser-drain/parser-drain.sh

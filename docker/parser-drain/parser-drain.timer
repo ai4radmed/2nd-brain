@@ -1,0 +1,10 @@
+[Unit]
+Description=2nd-brain parser drain — periodic poll
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min        # 10분 폴링 (비동기 파이프라인엔 충분; 도는 서비스는 또 안 띄움)
+Persistent=true
+
+[Install]
+WantedBy=timers.target
