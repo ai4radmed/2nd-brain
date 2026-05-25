@@ -23,6 +23,7 @@
 | 3 AI 검증 | diff 초과 페이지만 Claude 판정(docling.md↔mineru.md 비교, 필요 시 페이지 이미지) → `refined.md` + 동반 노트 | **Claude Code** | **미적용** | `_parse` 경로 확정 |
 
 - **현 단계 = Phase 2+3 를 `brainify`(Claude Code, attended)에서 병합 실행**(지연·검증). Phase 1·2 의 자동화(게이트웨이 cron + systemd 데몬 분리)는 inbox 볼륨이 실제 병목일 때 — 그때까지 위 표는 *목표 배치도*다. (추론 0 파서는 정확도 미보장 → 검증 필수, 그 검증을 attended brainify 가 이미 수행하므로 자동 분리는 아직 불필요.)
+- ※ 현재 `gmail-label-actions` 는 **capture-only**(스레드 `_thread.md` + 첨부 *원본* 저장; 파싱·knowledge 노트·앵커 0). 표 Phase 1 의 `parse: pending` 앵커 기록은 *목표* 추가분 — 현재는 **파싱·앵커 모두 brainify(Phase 2+3)** 담당.
 - Phase 2(결정형, 추론 0) = 게이트웨이 밖 데몬. 상한 없는 (A)가 감시 없는 표면에선 합법.
 - Phase 3(품질 검증) = 게이트웨이 아닌 Claude Code 가 제자리. 게이트웨이 역할은 감지·큐잉·알림으로 축소.
 
