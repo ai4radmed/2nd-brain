@@ -1,6 +1,6 @@
 # compose.2nd-brain-parser.yml — 2nd-brain-parser 문서 파서 (PDF·docx·xlsx → markdown), ghcr pull.
 #
-# 사용자는 ghcr 이미지를 pull (빌드 X). 자세한 안내: docs/2nd-brain-parser-pull.md
+# 사용자는 ghcr 이미지를 pull (빌드 X). 자세한 안내: docs/2nd-brain-parser-setup.md
 #   docker pull ghcr.io/benkorea/2nd-brain-parser:latest
 #   export UID=$(id -u) GID=$(id -g)
 #   docker compose -f docker/2nd-brain-parser/compose.2nd-brain-parser.yml \

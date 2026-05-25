@@ -58,7 +58,7 @@
 6. OpenClaw Docker 컨테이너 설치: [docs/openclaw-docker-install.md](./docs/openclaw-docker-install.md)
 7. 설치 후 기본 스킬·활용: [docs/openclaw-skills.md](./docs/openclaw-skills.md)
 8. (선택) gog 로 Google Workspace(메일·일정·할일) 연계: [docs/openclaw-docker-gog.md](./docs/openclaw-docker-gog.md)
-9. (선택) 문서 파서 컨테이너 — PDF·docx·xlsx 를 **로컬에서 markdown 으로** 변환(외부 API 0, 재무·민감자료 leak 방지): [docs/2nd-brain-parser-pull.md](./docs/2nd-brain-parser-pull.md). `docker pull ghcr.io/benkorea/2nd-brain-parser` 로 prebuilt 이미지를 받아 구동하며, 자료 흡수(brainify)의 **선행 파서**다.
+9. (선택) 문서 파서 컨테이너 — PDF·docx·xlsx 를 **로컬에서 markdown 으로** 변환(외부 API 0, 재무·민감자료 leak 방지): [docs/2nd-brain-parser-setup.md](./docs/2nd-brain-parser-setup.md). `docker pull ghcr.io/benkorea/2nd-brain-parser` 로 prebuilt 이미지를 받아 구동하며, 자료 흡수(brainify)의 **선행 파서**다.
 10. 내 vault 만들기: `./bootstrap.sh` 실행 — 빈 PARA 골격(knowledge/ + sources/) + 가이드를 `@`-import 하는 얇은 `CLAUDE.md` 자동 생성. 이후 운영 방법론은 [methodology/](./methodology/) 참조, 자료 흡수는 brainify.
 
 ## 설치방법 (AI Agent)
