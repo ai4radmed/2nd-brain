@@ -3,7 +3,7 @@ Description=2nd-brain parser drain — periodic poll
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=10min        # 10분 폴링 (비동기 파이프라인엔 충분; 도는 서비스는 또 안 띄움)
+OnUnitInactiveSec=10min      # 드레인 *종료* 10분 후 재발화 (긴 드레인과 겹침 없음; 도는 서비스는 또 안 띄움)
 Persistent=true
 
 [Install]
