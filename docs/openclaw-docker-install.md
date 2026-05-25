@@ -48,7 +48,7 @@ sudo chown -R 1000:1000 ~/.openclaw
 
 > onboarding 은 *기존* claude 자격증명을 재사용하므로, 미리 없으면 `Claude CLI is not authenticated` 로 중단됨. 호스트 `~/.claude` 와 **독립 lineage** 가 되도록 별도 로그인(복사 X — 회전 시 호스트가 로그아웃됨). *API 키 방식이면 이 단계 생략.*
 >
-> 🧑 **사용자 직접**: `auth login` 은 **브라우저 OAuth 승인**이 필요합니다 — 에이전트는 명령만 실행하고, 출력된 URL 승인은 사용자가 합니다.
+> **사용자 직접**: `auth login` 은 **브라우저 OAuth 승인**이 필요합니다 — 에이전트는 명령만 실행하고, 출력된 URL 승인은 사용자가 합니다.
 
 호스트에 Claude Code 가 있으면 (간단):
 
