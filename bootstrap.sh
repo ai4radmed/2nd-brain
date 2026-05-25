@@ -44,8 +44,8 @@ if [ ! -f "$VAULT_DIR/CLAUDE.md" ]; then
 > 운영 방법론은 공개 가이드를 \`@\`-import 해서 가져옵니다.
 > 공개 repo 를 \`$GUIDE_REF\` 가 아닌 다른 곳에 두었다면 아래 경로를 맞춰 수정하세요.
 
-@$GUIDE_REF/methodology/brain-system/README.md
-@$GUIDE_REF/methodology/brain-system/claude-instruction-layers.md
+@$GUIDE_REF/docs/brain-system/README.md
+@$GUIDE_REF/docs/brain-system/claude-instruction-layers.md
 
 ## 내 개인 설정 (직접 채우기)
 

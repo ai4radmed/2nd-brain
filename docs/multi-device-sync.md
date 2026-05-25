@@ -330,7 +330,7 @@ ls ~/projects/2nd-brain-vault/00_inbox/sync-roundtrip-test.md
 | `claude-skills` | `~/.claude/skills` | Claude Code CLI skill 정의 |
 | `claude-commands` | `~/.claude/commands` | Claude Code 슬래시 명령 (`/git-routine` 포함) |
 
-> 실제 목록·remote 의 **단일 권위 = vault `knowledge/02_areas/brain-system/repos.md`**, 카테고리 일반 원칙 = [prerequisite-repos.md](../methodology/setup/prerequisite-repos.md).
+> 실제 목록·remote 의 **단일 권위 = vault `knowledge/02_areas/brain-system/repos.md`**, 카테고리 일반 원칙 = [prerequisite-repos.md](./setup/prerequisite-repos.md).
 
 #### 1. 새 머신 clone
 

@@ -16,8 +16,7 @@
 
 | 경로 | 내용 |
 |---|---|
-| `docs/` | 컴포넌트 설치 절차 (OpenClaw Docker 컨테이너·gog·기본 스킬) |
-| `methodology/` | PARA·CODE·브레인화·동반 노트 등 운영 방법론 (vault 의 얇은 `CLAUDE.md` 가 `@`-import 하는 대상) |
+| `docs/` | 설치 절차 + 운영 방법론(`brain-system/`·`security/`·`setup/`). `docs/brain-system/README.md`·`claude-instruction-layers.md` 는 vault 얇은 `CLAUDE.md` 가 `@`-import 하는 대상 |
 | `templates/` | `vault-skeleton/` (빈 PARA 골격) + 노트 템플릿 |
 | `bootstrap.sh` | 새 vault 생성 — 골격 복사 + 얇은 `CLAUDE.md` 로더 생성 + git init (멱등·안전장치) |
 
@@ -26,7 +25,7 @@
 1. 이 repo 를 `~/projects/2nd-brain` 에 clone.
 2. `docs/` 의 설치 절차로 OpenClaw 컨테이너 등 컴포넌트 구축.
 3. `./bootstrap.sh` 로 자기 `2nd-brain-vault` 생성 (데이터 tier).
-4. 생성된 vault 의 얇은 `CLAUDE.md` 가 이 repo 의 `methodology/` 를 `@`-import → 운영 규약 적용.
+4. 생성된 vault 의 얇은 `CLAUDE.md` 가 이 repo 의 `docs/brain-system/` 을 `@`-import → 운영 규약 적용.
 5. `sources/00_inbox/` 에 자료 투입 → brainify 로 흡수.
 
 ## 작성 원칙
@@ -42,8 +41,8 @@
 | 영역 | 정본 위치 |
 |---|---|
 | 컴포넌트 설치 절차 | 이 repo `docs/` |
-| 운영 방법론 (PARA·companion note·brainify) | 이 repo `methodology/` |
-| 다기기 동기 — 전략·실행 | 전략·카테고리 = 이 repo `methodology/setup/prerequisite-repos.md`, 실행 절차(git+SyncThing) = `docs/multi-device-sync.md`. **실제 repo 목록 권위 = vault `repos.md`**, 일괄 실행 = 슬래시 명령 `/git-routine` |
+| 운영 방법론 (PARA·companion note·brainify) | 이 repo `docs/brain-system/` |
+| 다기기 동기 — 전략·실행 | 전략·카테고리 = 이 repo `docs/setup/prerequisite-repos.md`, 실행 절차(git+SyncThing) = `docs/multi-device-sync.md`. **실제 repo 목록 권위 = vault `repos.md`**, 일괄 실행 = 슬래시 명령 `/git-routine` |
 | 데이터 운영 규약 | `2nd-brain-vault/CLAUDE.md` (얇은 layer + 본 repo `@`-import) |
 | OpenClaw 자체 (이미지·CLI·설치 스크립트) | 공식 <https://docs.openclaw.ai> |
 
