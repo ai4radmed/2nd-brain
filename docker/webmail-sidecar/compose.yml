@@ -19,10 +19,10 @@ services:
     build:
       context: .
     shm_size: "1gb"
-    # 스킬 run.py·secret·profile 을 담은 home 을 마운트. root 실행(secret 600·ben 읽기; 이미지 HOME=/root).
-    # ⚠️ 현재 webmail-watch 스킬+secret 은 ~/.openclaw-docker 의 workspace 에 있음(런타임 데이터).
-    #    필요 시 WEBMAIL_HOME 으로 override.
+    # 런타임 데이터 home 을 마운트 — webmail-watch 스킬 run.py + secret(secrets/webmail-watch-kirams.toml)
+    # + chrome-profile(skills/webmail-watch/chrome-profile)이 ~/.openclaw-docker 에 있음.
+    # root 실행(secret 600·ben 읽기; 이미지 HOME=/root).
     volumes:
-      - ${WEBMAIL_HOME:-${HOME}/.openclaw-docker}:/root/.openclaw
+      - ${HOME}/.openclaw-docker:/root/.openclaw
     # 기본 CMD(이미지) = python run.py kirams (entrypoint 가 Xvfb 기동 후 exec).
     restart: "no"   # 일회성 폴 — 스케줄러가 매 폴마다 run --rm.
