@@ -19,10 +19,13 @@ services:
     build:
       context: .
     shm_size: "1gb"
-    # 런타임 데이터 home 을 마운트 — webmail-watch 스킬 run.py + secret(secrets/webmail-watch-kirams.toml)
-    # + chrome-profile(skills/webmail-watch/chrome-profile)이 ~/.openclaw-docker 에 있음.
-    # root 실행(secret 600·ben 읽기; 이미지 HOME=/root).
+    # 최소권한 마운트 — run.py 가 쓰는 4경로만(전체 ~/.openclaw 아님). root 사이드카가
+    # 탈취돼도 prod 봇토큰·gog키링(openclaw.json)·Claude OAuth(.claude)·credentials 노출 0.
+    # secret/profile/state 는 PC별 로컬(미동기). root 실행(secret 600·ben 읽기; 이미지 HOME=/root).
     volumes:
-      - ${HOME}/.openclaw-docker:/root/.openclaw
+      - ${HOME}/.openclaw/workspace/skills/webmail-watch:/root/.openclaw/workspace/skills/webmail-watch   # 코드(GitHub 동기)
+      - ${HOME}/.openclaw/secrets/webmail-watch-kirams.toml:/root/.openclaw/secrets/webmail-watch-kirams.toml   # 로그인 secret(로컬)
+      - ${HOME}/.openclaw/skills/webmail-watch/chrome-profile:/root/.openclaw/skills/webmail-watch/chrome-profile   # 브라우저 프로필(로컬)
+      - ${HOME}/.openclaw/agents/main/memory:/root/.openclaw/agents/main/memory   # state(중복 forward 방지, 로컬)
     # 기본 CMD(이미지) = python run.py kirams (entrypoint 가 Xvfb 기동 후 exec).
     restart: "no"   # 일회성 폴 — 스케줄러가 매 폴마다 run --rm.
