@@ -1,6 +1,6 @@
 # hwp/hwpx 지원 레이어 — 기존 검증 이미지(torch 포함) 위에 LibreOffice+H2Orestart + 새 entrypoint.
 # torch 재다운 0 (FROM 으로 재사용). 망 좋을 때 원본 Dockerfile 로 통합 재빌드 가능.
-FROM ghcr.io/benkorea/2brain-parser:2026.05.24
+FROM ghcr.io/benkorea/2nd-brain-parser:2026.05.24
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libreoffice-writer libreoffice-calc libreoffice-java-common default-jre-headless \
@@ -12,5 +12,5 @@ RUN set -e; \
     curl -fsSL -o /opt/H2Orestart.oxt "$URL"; \
     unopkg add --shared /opt/H2Orestart.oxt
 COPY entrypoint.py /usr/local/bin/brain-pdf
-RUN chmod +x /usr/local/bin/brain-pdf && ln -sf /usr/local/bin/brain-pdf /usr/local/bin/2brain-parser
+RUN chmod +x /usr/local/bin/brain-pdf && ln -sf /usr/local/bin/brain-pdf /usr/local/bin/2nd-brain-parser
 USER user

@@ -1,9 +1,9 @@
-# compose.2brain-parser.gpu.yml — GPU passthrough 오버레이 (수식 포함 학술 PDF용).
+# compose.2nd-brain-parser.gpu.yml — GPU passthrough 오버레이 (수식 포함 학술 PDF용).
 #
 # 수동 오버레이로 추가:
-#   docker compose -f docker/2brain-parser/compose.2brain-parser.yml \
-#                  -f docker/2brain-parser/compose.2brain-parser.gpu.yml \
-#                  run --rm 2brain-parser 2brain-parser parse-mineru <pdf>
+#   docker compose -f docker/2nd-brain-parser/compose.2nd-brain-parser.yml \
+#                  -f docker/2nd-brain-parser/compose.2nd-brain-parser.gpu.yml \
+#                  run --rm 2nd-brain-parser 2nd-brain-parser parse-mineru <pdf>
 #
 # 전제 (NVIDIA 호스트 1회 셋업):
 #   1. WSL2 안 nvidia-smi 정상 (RTX + Driver + CUDA)
@@ -13,7 +13,7 @@
 # CPU 만으로 충분한 경우(회계·일반 문서)는 이 오버레이 불필요.
 
 services:
-  2brain-parser:
+  2nd-brain-parser:
     deploy:
       resources:
         reservations:

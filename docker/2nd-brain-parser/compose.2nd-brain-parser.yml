@@ -1,0 +1,33 @@
+# compose.2nd-brain-parser.yml — 2nd-brain-parser 문서 파서 (PDF·docx·xlsx → markdown), ghcr pull.
+#
+# 사용자는 ghcr 이미지를 pull (빌드 X). 자세한 안내: docs/2nd-brain-parser-pull.md
+#   docker pull ghcr.io/benkorea/2nd-brain-parser:latest
+#   export UID=$(id -u) GID=$(id -g)
+#   docker compose -f docker/2nd-brain-parser/compose.2nd-brain-parser.yml \
+#                  run --rm 2nd-brain-parser 2nd-brain-parser parse-docling <pdf>
+#   (service 명 = CLI 명 = 2nd-brain-parser 라 두 번 나옴 — docker compose run <service> <command>)
+#
+# GPU(수식 PDF): -f compose.2nd-brain-parser.gpu.yml 오버레이 추가.
+# 첫 실행 시 HF 모델 ~5GB 가 2nd-brain-parser-models 볼륨에 다운로드(영속).
+
+services:
+  2nd-brain-parser:
+    image: ghcr.io/benkorea/2nd-brain-parser:${PARSER_VERSION:-latest}
+    container_name: 2nd-brain-parser
+    user: "${UID:-1000}:${GID:-1000}"
+    working_dir: /home/user/work
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HF_HOME: /home/user/.cache/huggingface
+      TRANSFORMERS_OFFLINE: "0"               # 첫 실행 모델 다운로드 허용 (이후 offline 가능)
+    stdin_open: true
+    tty: true
+    volumes:
+      - ${SB_DATA:-${HOME}/projects/2nd-brain-vault}:/home/user/projects/2nd-brain-vault
+      - 2nd-brain-parser-models:/home/user/.cache/huggingface
+    command: ["sleep", "infinity"]            # 데몬 default; `run` 으로 override
+
+volumes:
+  2nd-brain-parser-models:
