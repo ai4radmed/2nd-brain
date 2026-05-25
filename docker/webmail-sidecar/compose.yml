@@ -15,7 +15,7 @@
 #   운영 hardening = 그 host 만 허용하는 egress 화이트리스트. 최소 마운트.
 services:
   webmail-sidecar:
-    image: ${WEBMAIL_SIDECAR_IMAGE:-webmail-watch-sidecar:local}
+    image: webmail-watch-sidecar:local
     build:
       context: .
     shm_size: "1gb"
