@@ -77,7 +77,7 @@ $C 2nd-brain-parser diff <docling.md> <mineru.md>
 ---
 
 > **메인테이너 메모 — ghcr 이미지 발행**
-> 빌드소스(Dockerfile·entrypoint·requirements)는 `2nd-brain-docker/images/brain-pdf/`(공개) 에 있고, 검증된 이미지 `2nd-brain/brain-pdf:<date>` 가 이미 빌드돼 있다. **재빌드는 torch(~843MB) wheel 의 PyTorch CDN 다운로드가 한국망에서 불안정해 막힐 수 있으므로**, 발행은 *기존 검증 이미지를 tag + push* 로 한다 (재빌드 회피):
+> 빌드소스(Dockerfile·entrypoint·requirements)는 `docker/2nd-brain-parser/`(본 repo) 에 있고, 검증된 이미지 `2nd-brain/brain-pdf:<date>` 가 이미 빌드돼 있다. **재빌드는 torch(~843MB) wheel 의 PyTorch CDN 다운로드가 한국망에서 불안정해 막힐 수 있으므로**, 발행은 *기존 검증 이미지를 tag + push* 로 한다 (재빌드 회피):
 > ```bash
 > # 기존 이미지에 2nd-brain-parser CLI 심링크 1줄 얹기 (재빌드·torch 재다운 0)
 > docker run --user root --name rn-parser 2nd-brain/brain-pdf:<date> \
