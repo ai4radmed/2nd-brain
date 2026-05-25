@@ -1,17 +1,15 @@
-# OpenClaw 게이트웨이 — Docker 컨테이너 설치 (간결판)
+# OpenClaw Docker 설치
 
-> 붙여넣기용 bash 명령 + 최소 이유만. 자세한 배경·트러블슈팅 상세는 추후 보강.
 > 공식 문서: <https://docs.openclaw.ai/install/docker>
 
 **왜 컨테이너**: 호스트에 직접 설치하면 user 권한 그대로라 탈취 시 피해가 크지만, 컨테이너는 피해가 boundary 로 제한됨.
 
 ## 이 가이드 사용법 (사용자 / AI 에이전트 공통)
 
-- **설치 형태**: 컨테이너 1개 = **운영(production)** 이 기본. 같은 머신에 **데모용 2번째 컨테이너**를 추가할 수도 있고, *그때만* 포트를 다르게 준다(4단계).
+- **설치 형태**: 컨테이너 1개 = **운영(production)**
 - **AI 에이전트가 대화형으로 진행할 때**:
   1. 전제(아래)부터 점검 — `docker --version` · `docker compose version` · `git --version`.
-  2. 사용자에게 확인할 결정: ① 이 컨테이너가 *첫(운영)* 인가 *추가(데모)* 인가 → 포트 결정, ② 인증은 *OAuth(권장)* 인가 *API 키* 인가.
-  3. **🧑 사용자 직접 단계**(브라우저·폰 조작, 에이전트가 대신 못 함)에선 멈추고 안내 — Claude OAuth 로그인(3단계)·BotFather 토큰+텔레그램 pairing(6단계)·Control UI(7단계).
+  2. **사용자 직접 단계**(브라우저·폰 조작)에선 멈추고 안내 — Claude OAuth 로그인(3단계)·BotFather 토큰+텔레그램 pairing(6단계)·Control UI(7단계).
 
 ## 전제
 
@@ -36,7 +34,7 @@ cd ~/projects/openclaw-docker
 
 ## 2. 컨테이너 데이터 폴더 준비
 
-> 컨테이너가 읽고 쓰는 설정·데이터(bind-mount)를 둘 호스트 폴더. **운영(production)은 공식 기본 `~/.openclaw`** 를 그대로 쓴다 — 별도 지정 없이 `docker compose up` 만으로 뜨도록(이게 이 가이드의 핵심). 컨테이너 user `node`(uid 1000) 소유로 맞춘다. (데모용 2번째 컨테이너를 둘 거면 그건 별도 폴더 — 예: `~/.openclaw-demo`.)
+> 컨테이너가 읽고 쓰는 설정·데이터(bind-mount)를 둘 호스트 폴더. **운영(production)은 공식 기본 `~/.openclaw`** 를 그대로 쓴다 — 별도 지정 없이 `docker compose up` 만으로 뜨도록(이게 이 가이드의 핵심). 컨테이너 user `node`(uid 1000) 소유로 맞춘다.
 
 ```bash
 mkdir -p ~/.openclaw/workspace ~/.openclaw/.claude
@@ -82,24 +80,13 @@ ls -l ~/.openclaw/.claude/.credentials.json
 export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:latest"
 ```
 
-**데모용 2번째 컨테이너**를 같은 머신에 추가할 때만 — 운영이 `~/.openclaw`·18789 를 점유하므로 — 별도 폴더 + 포트를 재지정:
-
-```bash
-export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:latest"
-export OPENCLAW_CONFIG_DIR=$HOME/.openclaw-demo
-export OPENCLAW_WORKSPACE_DIR=$HOME/.openclaw-demo/workspace
-export OPENCLAW_EXTRA_MOUNTS="$HOME/.openclaw-demo/.claude:/home/node/.claude"
-export OPENCLAW_GATEWAY_PORT=18889   # 호스트 18889→컨테이너 18789
-export OPENCLAW_BRIDGE_PORT=18990    # 기본 18790 충돌 방지
-```
-
 ```bash
 ./scripts/docker/setup.sh
 ```
 
 위저드: *personal-by-default* → **Y**, *Setup mode* → **QuickStart**, *Provider* → **Anthropic OAuth (claude-cli)**.
 
-> ⚠️ 출력의 `Config:` 가 의도한 폴더(운영=`/home/<you>/.openclaw`, 데모=`...openclaw-demo`)와 일치해야 정상. `Building ... openclaw:local`(ghcr 이미지 대신 로컬 빌드) 이 보이면 `OPENCLAW_IMAGE` 미전달 → `Ctrl+C` 후 4단계부터 다시.
+> ⚠️ 출력의 `Config:` 가 의도한 폴더(`/home/<you>/.openclaw`)와 일치해야 정상. `Building ... openclaw:local`(ghcr 이미지 대신 로컬 빌드) 이 보이면 `OPENCLAW_IMAGE` 미전달 → `Ctrl+C` 후 4단계부터 다시.
 
 ## 5. PATH fix — 번들 claude 를 PATH 에 노출 (★필수)
 
@@ -123,7 +110,7 @@ services:
 EOF
 ```
 
-> 같은 `extra.yml` 에 **gog·vault 마운트**(2nd-brain 통합)를 함께 얹는다 — gog config(`~/.config/gogcli-openclaw-container`), vault(`~/projects/2nd-brain-vault`), `GOG_KEYRING_PASSWORD`·`GMAIL_ROUTER_*` env. 단계별: [openclaw-docker-gog.md](./openclaw-docker-gog.md). (데모 컨테이너면 위 `.claude` 경로를 `~/.openclaw-demo/.claude` 로.)
+> 같은 `extra.yml` 에 **gog·vault 마운트**(2nd-brain 통합)를 함께 얹는다 — gog config(`~/.config/gogcli-openclaw-container`), vault(`~/projects/2nd-brain-vault`), `GOG_KEYRING_PASSWORD`·`GMAIL_ROUTER_*` env. 단계별: [openclaw-docker-gog.md](./openclaw-docker-gog.md).
 
 재생성 + 확인:
 
@@ -162,7 +149,7 @@ docker exec -e OPENCLAW_GATEWAY_PORT=18789 "$GW" \
 
 ## 7. Control UI 접속
 
-브라우저에서 `http://127.0.0.1:18789/`(데모/추가 컨테이너면 `:18889`) 열고 `.env` 의 `OPENCLAW_GATEWAY_TOKEN` 붙여넣기. 토큰 박힌 URL 재발급:
+브라우저에서 `http://127.0.0.1:18789/` 열고 `.env` 의 `OPENCLAW_GATEWAY_TOKEN` 붙여넣기. 토큰 박힌 URL 재발급:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.extra.yml run --rm openclaw-cli dashboard --no-open
@@ -173,7 +160,7 @@ docker compose -f docker-compose.yml -f docker-compose.extra.yml run --rm opencl
 ## 8. 운영
 
 ```bash
-curl -fsS http://127.0.0.1:18789/healthz      # 데모/추가 컨테이너면 :18889
+curl -fsS http://127.0.0.1:18789/healthz
 ```
 
 ```bash
@@ -349,9 +336,7 @@ OpenClaw 텔레그램은 수신 메시지를 spool(`<config>/telegram/ingress-sp
 | 봇 "이메일 도구가 연결돼 있지 않습니다"(gog 는 STEP4 에서 작동하는데도) | **gog STEP 5** — `USER.md` 의 이메일 ≠ gog 인증 계정. 워크스페이스에 gog 계정 명시 후 `/new`. (`gog --account <틀린계정>` → `OAuth client credentials missing`) |
 | 봇 응답 `timed out 180s (no-output stall)` / 무거운 turn 만 간헐 무응답 후 `FailoverError` | [**신뢰성 섹션**](#신뢰성--스트리밍-stall-과-자동-복구-watchdog--model-fallback-) — model fallback + watchdog 한 쌍으로 자동 복구. (근본은 Claude Code 스트리밍 버그, 컨테이너 무관) |
 | 봇·`/new` 모두 묵묵부답, webhook pending=0 인데 응답 없음 | stall 이 텔레그램 spool 을 wedge — 신뢰성 섹션 "spool-wedge" 복구 절차 |
-| CLI 가 `gateway closed (1006)` (추가 컨테이너 병행 시) | `docker compose run` 대신 `docker exec -e OPENCLAW_GATEWAY_PORT=18789 "$GW" node dist/index.js <cmd>` |
-| 컨테이너 `address already in use :18789` (추가 컨테이너 병행 시) | 4단계 `OPENCLAW_GATEWAY_PORT`/`OPENCLAW_BRIDGE_PORT` 재지정 후 재시도 |
-| `EACCES /home/node/.openclaw` | `sudo chown -R 1000:1000 ~/.openclaw` (데모면 `~/.openclaw-demo`) |
+| `EACCES /home/node/.openclaw` | `sudo chown -R 1000:1000 ~/.openclaw` |
 | 이미지 빌드 OOM (exit 137) | RAM 2GB+ 필요 |
 | gog `aes.KeyUnwrap(): integrity check failed` | `GOG_KEYRING_PASSWORD` 가 **gog 키링** 비번과 불일치. gog 키링(`~/.config/gogcli-openclaw-container/keyring`)은 OpenClaw 자체 credentials 와 **별개 비번** — 그 키링을 만든 비번을 줘야 함 |
 | `cron list`/`status` 가 `gateway token mismatch` | `--token <gateway.auth.token>` 전달 (9a 참조). remote.token 미설정이라 CLI 가 인증 못 함 |
