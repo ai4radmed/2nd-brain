@@ -10,3 +10,29 @@ openclaw에서 내가 원하는 일련의 프로세스를 연결하여 하나의
 
 
 openclaw에서 나만의 프로세스를 만들 때 반드시 고려해야 하는 것이  openclaw cron→agent turn으로 호출여부이다. 이는 watchdog 때문에 일반적으로 180초 이상 걸리면 에러가 발생한다.
+
+## 트리거 패턴 — 무거운·외부 프로세스를 안전하게 잇기
+
+위 watchdog 때문에, **상한 없는·블로킹·외부(컨테이너) 작업을 게이트웨이의 agent-turn 안에서 직접 실행하면 안 된다.** 이유는 둘:
+
+1. **watchdog** — agent-turn 안의 블로킹 subprocess가 무출력으로 타임아웃을 넘기면 게이트웨이가 죽는다(FailoverError). 작업이 페이지 수 등에 비례해 상한이 없으면 timeout 을 키워도 언젠가 넘는다.
+2. **docker socket 보안** — 게이트웨이(LLM·외부 콘텐츠 처리)가 `docker run` 을 부르려면 docker socket 을 마운트해야 하는데, 그건 사실상 host root 권한 = 탈취 시 호스트 장악. **불리가 아니라 금지(하드 블로커).**
+
+→ **원칙: 게이트웨이는 *신호* 만 내고, 실행은 host-측 독립 프로세스(systemd)가 받는다.** 컨테이너를 없애는 게 아니라 *호출자* 를 게이트웨이 → host 로 옮기는 것.
+
+> 스코프 주의: 불리한 건 "게이트웨이 자동발화 agent-turn 안에서 블로킹 실행" 일 때뿐. **Claude Code(attended)나 host systemd 가 `docker run` 하는 건 watchdog 무관 — 정상.**
+
+### 신호 → 실행, 두 패턴
+
+| 패턴 | 언제 | 흐름 |
+|---|---|---|
+| **파일 드롭 트리거** | 산출물(파일) 등장이 곧 신호일 때 | 게이트웨이/유입이 폴더에 파일을 떨굼 → host `.path`/`.timer` 가 감지 → 독립 프로세스가 실행. 게이트웨이는 "호출" 안 하고 *파일만 씀* (파일시스템이 신호) |
+| **요청파일 브리지** | 게이트웨이가 *능동 개시* 해야 할 때 | 게이트웨이 텍스트 스킬이 요청 JSON 파일을 작성 → host `.path` 가 감지 → 실행. docker socket 마운트 회피 |
+
+### 실행 프로세스 안정 규칙
+
+- **concurrency=1** — systemd 단일 인스턴스 + `flock` + drain 루프. 동시 다중 실행 금지(RAM 보호). 처리 중 새 신호가 와도 큐 대기, 실행체는 1개. (1시간 걸려도 RAM 안 터지고 *지연* 만 발생.)
+- **멱등** — 산출물 존재(예: `<원본>_parse/`) 확인 후 skip. 중단·재발화·다기기 동기에 안전.
+- **watchdog 밖** — host 프로세스는 어느 agent watchdog 도 안 거침 → 상한 없는 작업이 합법.
+
+> 사례: 2nd-brain-parser(문서 파싱 컨테이너) 호출 배치도는 [`2nd-brain-parser-strategy.md`](2nd-brain-parser-strategy.md) 참조 — 본 트리거 패턴의 파싱-특화 적용.
