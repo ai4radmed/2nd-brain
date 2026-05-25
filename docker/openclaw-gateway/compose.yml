@@ -9,7 +9,7 @@
 #   docker compose up -d openclaw-gateway
 #   docker compose run --rm openclaw-cli <openclaw 명령>
 #
-# 설치·트러블슈팅 상세: 2nd-brain/docs/openclaw-docker-container.md
+# 설치·트러블슈팅 상세: 2nd-brain/docs/openclaw-docker-install.md
 # secret(GOG_KEYRING_PASSWORD·gateway token 등)은 .env(로컬)에만 — 이 파일·repo 엔 없음.
 services:
   openclaw-gateway:

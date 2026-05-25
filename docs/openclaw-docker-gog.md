@@ -1,6 +1,6 @@
 # OpenClaw Docker 컨테이너에 gog 붙이기 — Google Workspace (Gmail·Calendar·Tasks)
 
-> [openclaw-docker-container.md](./openclaw-docker-container.md) 로 컨테이너 설치를 마친 뒤 진행하는 **선택** 단계입니다. gog 를 붙이면 봇이 Gmail·Calendar·Drive·Tasks·Docs·Sheets 를 다룰 수 있습니다. (능력 범위·한계는 [openclaw-skills.md](./openclaw-skills.md) 참조)
+> [openclaw-docker-install.md](./openclaw-docker-install.md) 로 컨테이너 설치를 마친 뒤 진행하는 **선택** 단계입니다. gog 를 붙이면 봇이 Gmail·Calendar·Drive·Tasks·Docs·Sheets 를 다룰 수 있습니다. (능력 범위·한계는 [openclaw-skills.md](./openclaw-skills.md) 참조)
 
 gog 스킬은 번들돼 있지만 **gog 바이너리·인증이 따로 필요**합니다(대시보드 활성화는 brew 설치라 컨테이너에선 실패). gog 는 **정적 단일 바이너리**라 browser 와 달리 시스템 deps 없이 됩니다.
 

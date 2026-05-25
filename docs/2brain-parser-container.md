@@ -72,7 +72,7 @@ $C 2brain-parser diff <docling.md> <mineru.md>
 ## 다음
 
 - 파서 출력(`_parse/markdown`)을 소비하는 brainify: [`templates/skills/claude-code/`](../templates/skills/claude-code/README.md)
-- 컨테이너 운영 일반: [openclaw-docker-container.md](./openclaw-docker-container.md)
+- 컨테이너 운영 일반: [openclaw-docker-install.md](./openclaw-docker-install.md)
 
 ---
 

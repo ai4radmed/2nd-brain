@@ -55,7 +55,7 @@
 3. WSL2에서 docker 및 docker-compose 설치
 4. WSL2에서 Claude Code CLI 설치
 5. Telegram 설치 및 Bot 토큰 만들기
-6. OpenClaw Docker 컨테이너 설치: [docs/openclaw-docker-container.md](./docs/openclaw-docker-container.md)
+6. OpenClaw Docker 컨테이너 설치: [docs/openclaw-docker-install.md](./docs/openclaw-docker-install.md)
 7. 설치 후 기본 스킬·활용: [docs/openclaw-skills.md](./docs/openclaw-skills.md)
 8. (선택) gog 로 Google Workspace(메일·일정·할일) 연계: [docs/openclaw-docker-gog.md](./docs/openclaw-docker-gog.md)
 9. (선택) 문서 파서 컨테이너 — PDF·docx·xlsx 를 **로컬에서 markdown 으로** 변환(외부 API 0, 재무·민감자료 leak 방지): [docs/2brain-parser-container.md](./docs/2brain-parser-container.md). `docker pull ghcr.io/benkorea/2brain-parser` 로 prebuilt 이미지를 받아 구동하며, 자료 흡수(brainify)의 **선행 파서**다.

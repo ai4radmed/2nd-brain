@@ -1,6 +1,6 @@
 # OpenClaw 스킬 — 무엇을 바로 쓰고, 어디까지 할 수 있나
 
-[openclaw-docker-container.md](./openclaw-docker-container.md) 로 게이트웨이를 처음 띄우면, 별도 설치 없이도 일정 수의 **스킬(skill)** 이 이미 들어 있습니다. 이 문서는 **바로 쓸 수 있는 스킬(ready)** 부터 — 더 풀려면 무엇이 필요한지(needs-setup·Docker slim 한계), gog 로 할 수 있는 것·없는 것, cron 자동화·실용 활용까지 — 한곳에 정리합니다.
+[openclaw-docker-install.md](./openclaw-docker-install.md) 로 게이트웨이를 처음 띄우면, 별도 설치 없이도 일정 수의 **스킬(skill)** 이 이미 들어 있습니다. 이 문서는 **바로 쓸 수 있는 스킬(ready)** 부터 — 더 풀려면 무엇이 필요한지(needs-setup·Docker slim 한계), gog 로 할 수 있는 것·없는 것, cron 자동화·실용 활용까지 — 한곳에 정리합니다.
 
 > 측정 환경: ghcr `openclaw/openclaw` (버전 2026.5.20). 스킬 구성·개수는 버전에 따라 달라질 수 있으니, 본인 환경에서는 아래 *확인 명령* 으로 직접 보세요.
 
@@ -300,7 +300,7 @@ needs-setup 스킬 없이, 텔레그램으로 바로 되는 활용입니다.
 
 ### 어떻게 빠르게 하나 — 설치 체크리스트로
 
-구체적 설정·결정은 **설치 시 1회 결정** 사항이라, [openclaw-docker-container.md](./openclaw-docker-container.md) 의 **"초기 설정 시 반드시 검토 (모델·watchdog·하트비트·thinking)"** 에 체크리스트로 정리돼 있습니다. 핵심만:
+구체적 설정·결정은 **설치 시 1회 결정** 사항이라, [openclaw-docker-install.md](./openclaw-docker-install.md) 의 **"초기 설정 시 반드시 검토 (모델·watchdog·하트비트·thinking)"** 에 체크리스트로 정리돼 있습니다. 핵심만:
 
 - **① 작업에 맞는 모델** — 기계적 작업 = `haiku-4-5` (가장 큰 레버), 추론 필요 = `sonnet`.
 - **② watchdog ↔ 다단계 작업** — 한 턴에 몰빵 금지 → 단계별 분리 + **"각 처리마다 한 줄 회신"**(타이머 리셋). 위 **"실습 — gog + cron 라벨 자동화"** 절 참조.
@@ -310,7 +310,7 @@ needs-setup 스킬 없이, 텔레그램으로 바로 되는 활용입니다.
 ### 구조적 하한 (못 줄이는 부분)
 자연어 매개라 매 턴 "읽고→생각하고→툴 호출→결과 읽고→응답" LLM 루프를 돕니다 → 직접 `gog`(2초)보다 **항상 느림**(최적화해도 단순 작업 **~5~10초**). **즉답**이 필요하면 직접 gog/Claude Code, **폰·비동기·cron·푸시**가 가치면 봇.
 
-> 느림의 *구조적 원인*(매 턴 시스템프롬프트 23.5KB + 스킬 + MCP + 이력 누적)은 [openclaw-docker-container.md](./openclaw-docker-container.md) 의 "왜 느린가" 부록 참조.
+> 느림의 *구조적 원인*(매 턴 시스템프롬프트 23.5KB + 스킬 + MCP + 이력 누적)은 [openclaw-docker-install.md](./openclaw-docker-install.md) 의 "왜 느린가" 부록 참조.
 
 ## 정리
 
@@ -318,4 +318,4 @@ needs-setup 스킬 없이, 텔레그램으로 바로 되는 활용입니다.
 - 일반 사용자 체감 가치는 **A(일상·업무 6개) + D(기본 대화)**, 나머지는 개발/관리자용이거나 설정이 필요.
 - 더 많은 일상 기능(이메일·캘린더·GitHub)은 "needs setup" 을 개별 해제.
 
-> 다음: 스킬 추가·제작은 [openclaw-docker-container.md](./openclaw-docker-container.md) 의 운영 흐름과 OpenClaw 공식 문서 <https://docs.openclaw.ai> 를 참고하세요.
+> 다음: 스킬 추가·제작은 [openclaw-docker-install.md](./openclaw-docker-install.md) 의 운영 흐름과 OpenClaw 공식 문서 <https://docs.openclaw.ai> 를 참고하세요.

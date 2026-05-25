@@ -55,7 +55,7 @@ run-brain-pdf:
 # 호스트 systemd-user openclaw-gateway.service 를 대체. standalone compose.
 # 컨테이너가 곧 sandbox — 내부 sandbox.mode=off (cutover).
 # 전제: 호스트 게이트웨이 stop+disable, .env 에 OPENCLAW_VERSION +
-# GOG_OPENCLAW_KEYRING_PASSWORD. 상세: docs/openclaw-docker-container.md.
+# GOG_OPENCLAW_KEYRING_PASSWORD. 상세: docs/openclaw-docker-install.md.
 COMPOSE_OPENCLAW := -f compose.openclaw.yml
 
 # GOG_OPENCLAW_KEYRING_PASSWORD is irrelevant at build time but compose
