@@ -1,0 +1,113 @@
+# compose.yml — 2nd-brain OpenClaw 게이트웨이 (canonical, ghcr-pull 방식).
+#
+# 이 파일이 실제 운영 구성의 단일 정본이다. 공식 ghcr 이미지를 pull 해 구동하며
+# (커스텀 빌드 없음), ~/.openclaw 를 bind-mount 해 상태를 영속한다.
+#
+# 실행:
+#   cd ~/projects/2nd-brain/docker/openclaw-gateway
+#   cp .env.example .env   # 그리고 .env 의 secret/경로를 자기 환경에 맞게 채움 (.env 는 git 미추적)
+#   docker compose up -d openclaw-gateway
+#   docker compose run --rm openclaw-cli <openclaw 명령>
+#
+# 설치·트러블슈팅 상세: 2nd-brain/docs/openclaw-docker-container.md
+# secret(GOG_KEYRING_PASSWORD·gateway token 등)은 .env(로컬)에만 — 이 파일·repo 엔 없음.
+services:
+  openclaw-gateway:
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:latest}
+    container_name: 2nd-brain-openclaw-gateway   # folder·repo 와 동일 토큰(2nd-brain-), 타 인스턴스와 구분
+    shm_size: "1gb"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HOME: /home/node
+      OPENCLAW_HOME: /home/node
+      TERM: xterm-256color
+      # 컨테이너측 경로 핀 — .env(호스트 경로)가 런타임 코드로 새지 않게 (#77436).
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      # .env 의 OPENCLAW_GATEWAY_PORT 는 *호스트 publish* 포트(ports: 에서 사용).
+      # 컨테이너 안에서는 항상 18789 바인딩(command 참조). 이 핀이 없으면 host 값이 새 들어옴.
+      OPENCLAW_GATEWAY_PORT: "18789"
+      OPENCLAW_DISABLE_BONJOUR: ${OPENCLAW_DISABLE_BONJOUR:-1}
+      # ★ PATH fix(필수): 번들 claude 를 PATH 앞에 — 없으면 모든 채널 메시지가
+      #   ENOENT/EPIPE 로 'Something went wrong' 실패. (docs §5)
+      PATH: /home/node/.openclaw/bin:/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      # 2nd-brain 통합(gog·gmail-label-actions) — 값은 .env.
+      GOG_KEYRING_PASSWORD: ${GOG_KEYRING_PASSWORD:-}
+      GMAIL_ROUTER_ACCOUNT: ${GMAIL_ROUTER_ACCOUNT:-}
+      GMAIL_ROUTER_INBOX: ${GMAIL_ROUTER_INBOX:-}
+      TZ: ${OPENCLAW_TZ:-Asia/Seoul}
+    volumes:
+      # 영속 홈(설정·workspace·메모리·credentials).
+      - ${OPENCLAW_CONFIG_DIR:-${HOME}/.openclaw}:/home/node/.openclaw
+      # Claude OAuth 자격증명(호스트 ~/.claude 와 독립 lineage). docs §3.
+      - ${OPENCLAW_CLAUDE_DIR:-${HOME}/.openclaw/.claude}:/home/node/.claude
+      # gog(Google Workspace) 컨테이너 전용 OAuth client. docs: openclaw-docker-gog.md
+      - ${GOGCLI_DIR:-${HOME}/.config/gogcli-openclaw-container}:/home/node/.config/gogcli
+      # vault(gmail-label-actions 캡처 대상). 운영=실 vault, 데모=demo vault.
+      - ${VAULT_DIR:-${HOME}/projects/2nd-brain-vault}:/home/node/projects/2nd-brain-vault
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+      - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
+    init: true
+    restart: unless-stopped
+    command:
+      ["node", "dist/index.js", "gateway", "--bind", "${OPENCLAW_GATEWAY_BIND:-lan}", "--port", "18789"]
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # 일회성 CLI (docker compose run --rm openclaw-cli <명령>). 게이트웨이 네트워크 공유.
+  openclaw-cli:
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:latest}
+    network_mode: "service:openclaw-gateway"
+    env_file:
+      - path: .env
+        required: false
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HOME: /home/node
+      OPENCLAW_HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      OPENCLAW_GATEWAY_PORT: "18789"
+      PATH: /home/node/.openclaw/bin:/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      GOG_KEYRING_PASSWORD: ${GOG_KEYRING_PASSWORD:-}
+      GMAIL_ROUTER_ACCOUNT: ${GMAIL_ROUTER_ACCOUNT:-}
+      GMAIL_ROUTER_INBOX: ${GMAIL_ROUTER_INBOX:-}
+      BROWSER: echo
+      TZ: ${OPENCLAW_TZ:-Asia/Seoul}
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-${HOME}/.openclaw}:/home/node/.openclaw
+      - ${OPENCLAW_CLAUDE_DIR:-${HOME}/.openclaw/.claude}:/home/node/.claude
+      - ${GOGCLI_DIR:-${HOME}/.config/gogcli-openclaw-container}:/home/node/.config/gogcli
+      - ${VAULT_DIR:-${HOME}/projects/2nd-brain-vault}:/home/node/projects/2nd-brain-vault
+    stdin_open: true
+    tty: true
+    init: true
+    entrypoint: ["node", "dist/index.js"]
+    depends_on:
+      - openclaw-gateway
