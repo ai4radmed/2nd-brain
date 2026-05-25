@@ -1,27 +1,26 @@
-# 다기기 동기 — 2nd-brain 시스템
+## 여러 PC에서 2nd-brain 시스템을 동기화하여 운영하는 방법
+> 노트북과 PC, 때에 따라서는 홈나스를 포함한 홈서버에서 2nd-brain 시스템을 동기화하여 운영하는 방법
+> 한 PC를 서버로 운영한다면 굳이 다중기기를 사용하지 않을 수도 있음
+> 그러나 2nd-brain system은 Claude Code CLI를 직접 사용하는 것도 가능하며 특히 자신만의 skill을 개발한다면 개발자체는 PC에서 Claude-code-cli를 사용하고 운영은 openclaw로 하는 것이 편리하므로 최소한 이러한 목적을 위해서라도 다중기기 지원이 필요
 
-여러 기기에서 2nd-brain 시스템을 동기화하는 실행 가이드. 자산 성격에 따라 **두 메커니즘**으로 나뉜다.
+### 두 가지 동기화 방식의 적용
+1. Syncthing + 구글 드라이브
+  - 2nd-brain-vault는 용량이 큰 파일이 있고 개인자료라서 파일크기가 제한적이고 공개를 원칙으로 하는 github 동기화 부적합
+  - 2nd-brain system은 속도를 위해서 WSL2에 구축되었는데 WSL2에 만들어진 2nd-brain-vault를 로컬 구글드라이브로 지정하는 것은 속도가 느리고 권장하지 않음
+  - 저자는 WSL2의 2nd-brain-vault를 host Windosw의 2nd-brain-vault에 Syncthing으로 동기화함. 그리고 host Windows의 2nd-brain-vault를 클라우드 구글 드라이브와 미러링으로 동기화하고 다른 PC에서 역방향으로 동기화함.
+  
+2. Github 동기화
+  - 2nd-brain을 위한 OpenClaw와 Claude-code-cli의 skill 들은 저장소로 지정하여 github로 동기화함
+  - 여기에 해당하는 저장소들은 아래와 같음 
+    - ~/.openclaw/workspace
+    - ~/.claude/skills
+    - ~/.claude/commands
 
-## 두 동기 메커니즘
-
-| 자산 | 메커니즘 | 실행 | 대상 권위 |
-|---|---|---|---|
-| **코드·설정·스킬** (`2nd-brain`·`openclaw-config`·`openclaw-workspace`·Claude Code commands·skills) | **git** | 슬래시 명령 `/git-routine` (fetch→pull→dirty commit+push) | vault `knowledge/02_areas/brain-system/repos.md` (실제 목록) |
-| **vault 데이터** (`2nd-brain-vault` — 노트·원본 바이너리) | **SyncThing + Drive for Desktop** | 아래 §vault 동기 절차 | — |
-
-- **왜 둘로 나누나**: 코드·설정은 변경이 의미 단위라 git 이 자연스럽고, vault 는 대용량 바이너리·잦은 변경·비공개라 git 비친화 → SyncThing+클라우드. 전략·카테고리 일반 원칙은 [methodology/setup/prerequisite-repos.md](../methodology/setup/prerequisite-repos.md), 결정 근거는 vault `knowledge/02_areas/brain-system/research/2026-05-04_sync-architecture-roadmap.md`.
-
-## Git 자산 동기 (코드·설정·스킬)
-
-- **새 머신 clone**: 대상 repo 목록·clone 명령은 vault `repos.md` §새 PC 셋업 (권위 인벤토리). 카테고리·가시성 일반 원칙은 [prerequisite-repos.md](../methodology/setup/prerequisite-repos.md).
-- **일상 동기**: Claude Code 에서 `/git-routine sync` — `repos.md` 인벤토리를 읽어 in-routine repo 전체를 fetch→pull→(dirty)commit+push. `pull`·`status` 인자로 범위 조절. **어느 폴더에서 실행해도 동일**(전역 슬래시 명령 + `repos.md` 절대경로 — CWD 무관).
-- **skill 동기 = 그 일부**: `~/.openclaw/workspace`(openclaw skills)·`~/.claude/skills`·`~/.claude/commands`(Claude Code 슬래시 명령·스킬) 가 in-routine 에 포함.
-
-## vault 동기 (SyncThing + Drive for Desktop)
+### vault 동기 (SyncThing + Drive for Desktop) 세부절차
 
 새 머신에 vault(`2nd-brain-vault`) 동기를 셋업할 때 따라가는 절차. (다루는 것: WSL2 ↔ Windows Syncthing 페어링 + Drive for Desktop 연계 + 표준 .stignore. 채택 근거: vault `research/2026-05-04_sync-architecture-roadmap.md`.)
 
-## 전제
+#### 전제
 
 - 머신: Windows + WSL2 (Ubuntu 또는 Debian 계열)
 - vault 정본 위치: `~/projects/2nd-brain-vault/` (WSL2 ext4 native)
@@ -29,7 +28,7 @@
 - Google Drive 계정 + Drive for Desktop 설치 (file 미러링 모드)
 - 인터넷 outbound HTTPS 허용 (Syncthing global discovery 용)
 
-## Port Convention
+#### Port Convention
 
 | 컨텍스트 | GUI 포트 | Sync 포트 | Discovery |
 |---|---|---|---|
@@ -38,9 +37,9 @@
 
 **원칙**: GUI 포트만 명시 통일. Sync/Discovery 는 기본값 유지 (mirrored mode 충돌은 SyncTrayzor 가 자동 처리).
 
-## 새 머신 셋업 순서
+#### 새 머신 셋업 순서
 
-### 1. 사전 준비
+#### 1. 사전 준비
 
 **WSL2 네트워킹 모드 확인** (분기 결정용):
 ```bash
@@ -57,7 +56,7 @@ ls -la ~/projects/2nd-brain-vault 2>/dev/null
 - 비어있거나 부재 → 신규 머신, Windows 측에서 받아옴 (예: hospital PC)
 - 내용 있음 → 정본 보유 머신, Windows 측으로 보냄 (예: laptop)
 
-### 2. Syncthing 설치
+#### 2. Syncthing 설치
 
 **WSL2 측**:
 ```bash
@@ -77,7 +76,7 @@ loginctl enable-linger $USER  # 로그아웃 후에도 유지
 
 > **참고**: 원본 `canton7/SyncTrayzor` 는 2025-08 아카이브. GermanCoding fork 가 공식 후속. 자세한 배경은 vault 의 [research notes](../../../2nd-brain-vault/knowledge/02_areas/brain-system/research/) 참조.
 
-### 3. GUI 포트 설정 (양쪽)
+#### 3. GUI 포트 설정 (양쪽)
 
 **WSL2 측 Web UI** (`http://127.0.0.1:8384`):
 - 기본값 그대로 유지 (8384) — 별도 설정 불필요
@@ -97,7 +96,7 @@ curl -I http://127.0.0.1:8384
 curl.exe -I http://127.0.0.1:8385
 ```
 
-### 4. 페어링
+#### 4. 페어링
 
 **Device 이름 명확화** (양쪽):
 - ⚙ → Settings → General → **Device Name**: `<위치>-<OS>` 패턴
@@ -118,7 +117,7 @@ NAT mode 에서 2분 이상 "Disconnected" 가 지속되면 → 명시적 addres
   netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=22001 connectaddress=<WSL_IP> connectport=22000
   ```
 
-### 5. 임시 폴더 sync 검증 (필수 권장)
+#### 5. 임시 폴더 sync 검증 (필수 권장)
 
 vault 본 등록 전, 더미 폴더로 양방향 동기 작동 확인:
 
@@ -139,7 +138,7 @@ echo "test $(date)" > ~/sync-test/from-wsl.txt
 ```
 양쪽 모두 5~10초 내 도달하면 통과.
 
-### 6. vault 폴더 본 등록
+#### 6. vault 폴더 본 등록
 
 **중요**: 본 등록 전 백업:
 ```bash
@@ -177,7 +176,7 @@ Windows 측 알림 → Add:
 
 **초기 복제 대기**: 양쪽 모두 "Up to Date" 녹색 + "Out of Sync Items: 0" 까지.
 
-### 7. Drive for Desktop 재개
+#### 7. Drive for Desktop 재개
 
 위 6 단계 완료 후:
 - 트레이 → Drive 아이콘 → 일시정지 해제
@@ -187,7 +186,7 @@ Windows 측 알림 → Add:
 - 트레이 메뉴 → 활동 패널
 - 또는 https://drive.google.com → `2nd-brain-vault` 폴더 등장
 
-## .stignore 표준 패턴
+#### .stignore 표준 패턴
 
 양쪽 (WSL2·Windows) Folder → ⋮ → Edit → Ignore Patterns 탭에 동일 입력:
 
@@ -213,7 +212,7 @@ __pycache__/
 Thumbs.db
 ```
 
-## 검증 체크리스트
+#### 검증 체크리스트
 
 ```bash
 # WSL2 측 vault 파일 수
@@ -236,9 +235,9 @@ echo "from $(hostname) $(date)" > ~/projects/2nd-brain-vault/00_inbox/sync-round
 ls ~/projects/2nd-brain-vault/00_inbox/sync-roundtrip-test.md
 ```
 
-## 트러블슈팅
+#### 트러블슈팅
 
-### SyncTrayzor 가 의도와 다른 GUI 포트로 뜸
+#### SyncTrayzor 가 의도와 다른 GUI 포트로 뜸
 
 증상: Web UI Settings 에 "시작옵션이 GUI 주소를 덮어쓰고 있습니다" 표시.
 
@@ -249,7 +248,7 @@ ls ~/projects/2nd-brain-vault/00_inbox/sync-roundtrip-test.md
 2. Web UI → Settings → GUI → GUI Listen Address 명시 입력 (`127.0.0.1:8385`) → Save → Restart
 3. SyncTrayzor 가 다시 자동 override 시도하면, WSL2 측 GUI 포트가 정말 8384 인지 확인 (충돌 시 SyncTrayzor 가 비킨 것이라면 정상)
 
-### 페어링이 "Connecting..." 에서 멈춤
+#### 페어링이 "Connecting..." 에서 멈춤
 
 체크 순서:
 1. 같은 머신 내라면 명시적 address 추가 (`tcp://127.0.0.1:22000` 또는 WSL_IP·WIN_HOST)
@@ -257,7 +256,7 @@ ls ~/projects/2nd-brain-vault/00_inbox/sync-roundtrip-test.md
 3. Device ID 가 정확한지 (오타 한 글자에도 페어링 실패)
 4. 양쪽 모두 device 등록 + 승인 완료됐는지
 
-### 파일 권한 에러
+#### 파일 권한 에러
 
 증상: Windows → WSL2 방향 파일이 root 소유로 생성됨.
 
@@ -265,7 +264,7 @@ ls ~/projects/2nd-brain-vault/00_inbox/sync-roundtrip-test.md
 - 양쪽 폴더 Advanced 탭 → **Ignore Permissions: ✅ 체크** 확인
 - 이미 잘못 생성된 파일은 `sudo chown -R $USER:$USER ~/projects/2nd-brain-vault/`
 
-### `.sync-conflict-*` 파일 누적
+#### `.sync-conflict-*` 파일 누적
 
 원인: 양쪽에서 같은 파일 동시 편집 또는 시계 차이.
 
@@ -274,7 +273,7 @@ ls ~/projects/2nd-brain-vault/00_inbox/sync-roundtrip-test.md
 2. 어느 쪽을 살릴지 결정 → 한쪽 삭제
 3. 빈번하면 Obsidian/편집기 사용 패턴 점검 (한 머신에서만 편집하는 규약)
 
-### Drive for Desktop 이 수상한 파일을 클라우드로 올림
+#### Drive for Desktop 이 수상한 파일을 클라우드로 올림
 
 원인: `.stignore` 가 Syncthing 만 가르치고, Drive for Desktop 은 별도. Drive for Desktop 은 Windows 폴더의 모든 파일을 클라우드에 보낸다.
 
@@ -282,7 +281,7 @@ ls ~/projects/2nd-brain-vault/00_inbox/sync-roundtrip-test.md
 - `.stignore` 패턴이 의도대로 작동해서 Windows 측에 노이즈가 안 가도록 — Syncthing 측 ignore 가 첫 방어선
 - 이미 클라우드에 올라간 노이즈는 Drive 웹에서 직접 삭제
 
-### 연결됐지만 type=relay-server (mirrored mode 특수)
+#### 연결됐지만 type=relay-server (mirrored mode 특수)
 
 증상: 페어링은 성공, 두 device 가 connected, 동기는 작동. 그러나 device 카드 또는 REST API 의 `connections` 가 `type: relay-server`, `address: <외부 IP>:22067` (Syncthing 공용 relay). 외부 트래픽 + 지연 + 처리량 한계 발생.
 
@@ -309,7 +308,7 @@ ls ~/projects/2nd-brain-vault/00_inbox/sync-roundtrip-test.md
 
 본 케이스는 mirrored mode 전용. NAT mode 의 LAN 직결 문제는 step 4 의 portproxy 단계로 별도 해결.
 
-## 운영 사례 — 첫 적용 (2026-05-04 ~)
+#### 운영 사례 — 첫 적용 (2026-05-04 ~)
 
 | 머신 | 셋업 일자 | 비고 |
 |---|---|---|
@@ -319,7 +318,52 @@ ls ~/projects/2nd-brain-vault/00_inbox/sync-roundtrip-test.md
 
 새 머신 추가 시 본 문서 업데이트.
 
-## 관련 문서
+### Git 자산 동기 (skill·MCP·슬래시명령) 세부절차
+
+§두 가지 동기화 방식 #2 의 실행 상세. **개발은 PC 의 Claude Code CLI, 운영은 OpenClaw** 이므로, 두 환경이 같은 skill 을 공유하려면 git 동기가 필요하다.
+
+#### 대상 repo
+
+| repo | 위치 | 담는 것 |
+|---|---|---|
+| `openclaw-workspace` | `~/.openclaw/workspace` | OpenClaw main 에이전트 skill(`gmail-label-actions`·`society-watch`·`webmail-watch`·`g` 등) + 메모리·soul |
+| `claude-skills` | `~/.claude/skills` | Claude Code CLI skill 정의 |
+| `claude-commands` | `~/.claude/commands` | Claude Code 슬래시 명령 (`/git-routine` 포함) |
+
+> 실제 목록·remote 의 **단일 권위 = vault `knowledge/02_areas/brain-system/repos.md`**, 카테고리 일반 원칙 = [prerequisite-repos.md](../methodology/setup/prerequisite-repos.md).
+
+#### 1. 새 머신 clone
+
+`repos.md` §새 PC 셋업 의 clone 블록을 그대로. 핵심:
+```bash
+git clone git@github.com:BenKorea/openclaw-workspace.git   ~/.openclaw/workspace
+git clone git@github.com:BenKorea/claude-code-skills.git    ~/.claude/skills
+git clone git@github.com:BenKorea/claude-code-commands.git  ~/.claude/commands
+```
+> `~/.claude/{skills,commands}` 는 Claude Code 가 직접 읽는 **운영 위치** — `~/projects/` 에 별도 작업본을 또 두지 말 것(같은 remote 라 운영본에서 바로 편집·commit·push).
+
+#### 2. 일상 동기 — `/git-routine`
+
+Claude Code 에서 `/git-routine sync` — `repos.md` in-routine repo 전체를 fetch→pull→(dirty)commit+push. **CWD 무관**(전역 슬래시 명령 + repos.md 절대경로). `pull`·`status` 인자로 범위 조절. skill 동기는 이 루틴의 일부.
+
+#### 3. MCP 서버 — 동기 범위 주의 (토큰 누설 방지)
+
+MCP 는 자산 위치에 따라 **동기 대상이 갈린다**:
+
+| MCP 유형 | 위치 | git 동기? |
+|---|---|---|
+| Claude Code **user-level** MCP 서버 | `~/.claude.json` | ❌ **머신-로컬** — 토큰·런타임 상태 혼재. 각 머신에서 `claude mcp add ...` 로 재등록 |
+| **project/skill-scoped** MCP | repo 안 `.mcp.json` 또는 skill 정의 | ✅ 그 repo 와 함께 동기 |
+| OpenClaw MCP/도구·플러그인 | `openclaw.json`(secret, git 미동기)·plugin | ❌ 머신별 |
+
+> 원칙: **공유 가치가 있는 MCP 는 synced repo(skill/`.mcp.json`)에 정의**해 따라오게 하고, **토큰이 박힌 user-level MCP 는 머신-로컬**로 두고 머신마다 재등록. (`repos.md` 가 *비밀은 git 에 안 들어간다* 는 원칙과 동일선상.)
+
+#### 운영 주의
+
+- **한 번에 한 머신만 active** — skill state(처리 위치·마지막 post_id 등)가 머신별이라 동시 운영 시 중복·누락 위험.
+- **개발↔운영 핸드오프**: PC 에서 skill 편집 → `/git-routine sync` 푸시 → 운영(OpenClaw) 머신에서 pull. (OpenClaw cron 토글로 동시 가동 회피.)
+
+### 관련 문서
 
 - 결정 근거·아키텍처: `2nd-brain-vault/knowledge/02_areas/brain-system/research/2026-05-04_sync-architecture-roadmap.md`
 - Obsidian × WSL2 9P 한계: `2nd-brain-vault/knowledge/02_areas/brain-system/research/2026-05-04_obsidian-wsl2-limitation.md`
