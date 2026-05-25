@@ -1,0 +1,28 @@
+# compose.yml — webmail-watch 브라우저형 스킬 전용 사이드카 (headed-under-Xvfb), canonical.
+#
+# 게이트웨이(텍스트형)와 분리된 일회성 폴 컨테이너. OpenClaw 에이전트/LLM 미사용 — 순수 스케줄 스크립트.
+# MailPlug 같은 anti-headless SPA 는 headless 면 백지 → headed(가상 디스플레이 Xvfb)로만 렌더.
+# 그래서 게이트웨이(브라우저 없음)와 별도 런타임으로 둔다. 상세: ../../docs/openclaw-docker-container.md §9b
+#
+# 한 번 폴:
+#   docker compose -f compose.yml run --rm webmail-sidecar
+#   docker compose -f compose.yml run --rm webmail-sidecar python run.py kirams --limit 1 --verbose
+#
+# 스케줄: HOST systemd-timer(`openclaw-webmail-sidecar.timer`)가 위 명령을 주기 호출.
+#   ※ OpenClaw 게이트웨이 cron→docker 는 docker socket(권한상승) 필요 → 피하고 host 스케줄러 사용.
+#
+# 보안: egress 면이 mail.kirams.re.kr 하나(forward 는 KIRAMS UI 클릭, 외부 SMTP egress 無).
+#   운영 hardening = 그 host 만 허용하는 egress 화이트리스트. 최소 마운트.
+services:
+  webmail-sidecar:
+    image: ${WEBMAIL_SIDECAR_IMAGE:-webmail-watch-sidecar:local}
+    build:
+      context: .
+    shm_size: "1gb"
+    # 스킬 run.py·secret·profile 을 담은 home 을 마운트. root 실행(secret 600·ben 읽기; 이미지 HOME=/root).
+    # ⚠️ 현재 webmail-watch 스킬+secret 은 ~/.openclaw-docker 의 workspace 에 있음(런타임 데이터).
+    #    필요 시 WEBMAIL_HOME 으로 override.
+    volumes:
+      - ${WEBMAIL_HOME:-${HOME}/.openclaw-docker}:/root/.openclaw
+    # 기본 CMD(이미지) = python run.py kirams (entrypoint 가 Xvfb 기동 후 exec).
+    restart: "no"   # 일회성 폴 — 스케줄러가 매 폴마다 run --rm.
