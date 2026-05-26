@@ -61,7 +61,7 @@ CLAUDE_CONFIG_DIR="$HOME/.openclaw/.claude" claude auth login
 ```bash
 docker run --rm -it -u node -v ~/.openclaw/.claude:/home/node/.claude \
   --entrypoint /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude \
-  ghcr.io/openclaw/openclaw:latest auth login
+  ghcr.io/openclaw/openclaw:2026.5.20 auth login
 ```
 
 확인 (파일 생기면 OK):
@@ -74,11 +74,13 @@ ls -l ~/.openclaw/.claude/.credentials.json
 
 > `setup.sh` 는 `.env` 가 아니라 **셸 환경변수**를 봄 → 반드시 `export`. (`.claude` 마운트가 토큰을 영속화.)
 
-**운영(production)** — 공식 기본값(`~/.openclaw` + 포트 18789/18790)을 그대로 쓰므로 이미지만 지정:
+**운영(production)** — 공식 기본값(`~/.openclaw` + 포트 18789/18790)을 그대로 쓰므로 이미지만 지정. **검증된 버전으로 핀할 것 (`:latest` 금지)**:
 
 ```bash
-export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:latest"
+export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:2026.5.20"
 ```
+
+> ⚠️ **`:latest` 쓰지 말 것 (저자 실측 2026-05-26)**: `2026.5.22` 부터 이미지에서 **번들 claude CLI 가 제거**되어, 이 가이드의 "Anthropic Claude CLI" 인증(3단계 선반입 + 5단계 PATH fix 의 `claude-agent-sdk-linux-x64/claude` 경로)이 `Claude CLI is not authenticated` / `EPIPE` 로 통째로 깨진다. `:2026.5.20` 은 번들 claude 를 포함한 *검증된* 버전(ghcr pull 가능). 신버전은 `claude-agent-acp` 기반 인증으로 옮겨갔으므로, 버전을 올리려면 그 흐름에 맞춰 본 문서(3·5단계)를 **먼저 갱신**한 뒤 핀을 바꿀 것.
 
 ```bash
 ./scripts/docker/setup.sh
