@@ -14,7 +14,7 @@ cp .env.example .env          # secret·경로 채움
 docker compose up -d openclaw-gateway
 docker compose run --rm openclaw-cli <openclaw 명령>
 ```
-설치·트러블슈팅 상세: [`../../docs/openclaw-docker-install.md`](../../docs/openclaw-docker-install.md), gog 통합: [`../../docs/openclaw-docker-gog.md`](../../docs/openclaw-docker-gog.md).
+설치·트러블슈팅 상세: [`../../docs/openclaw-docker-install.md`](../../docs/openclaw-docker-install.md), gog 통합: [`../../docs/openclaw-docker-add-gog.md`](../../docs/openclaw-docker-add-gog.md).
 
 ## 이력
 - **2026-05-25 ghcr canonical 화**: 구 `compose.openclaw.yml`(2nd-brain-docker "박물관" 흡수분 — *커스텀 빌드* `2nd-brain/openclaw-gateway` 이미지 + `sb-openclaw`, **실행된 적 없는 죽은 파일**)와 `Dockerfile` 을 제거하고, 실제 운영(ghcr-pull)과 일치하는 `compose.yml` 로 교체.

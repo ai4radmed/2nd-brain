@@ -46,7 +46,7 @@ services:
       - ${OPENCLAW_CONFIG_DIR:-${HOME}/.openclaw}:/home/node/.openclaw
       # Claude OAuth 자격증명(호스트 ~/.claude 와 독립 lineage). docs §3.
       - ${OPENCLAW_CLAUDE_DIR:-${HOME}/.openclaw/.claude}:/home/node/.claude
-      # gog(Google Workspace) 컨테이너 전용 OAuth client. docs: openclaw-docker-gog.md
+      # gog(Google Workspace) 컨테이너 전용 OAuth client. docs: openclaw-docker-add-gog.md
       - ${GOGCLI_DIR:-${HOME}/.config/gogcli-openclaw-container}:/home/node/.config/gogcli
       # vault(gmail-label-actions 캡처 대상). 운영=실 vault, 데모=demo vault.
       - ${VAULT_DIR:-${HOME}/projects/2nd-brain-vault}:/home/node/projects/2nd-brain-vault

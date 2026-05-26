@@ -90,7 +90,7 @@ docker compose -f docker-compose.yml -f docker-compose.extra.yml run --rm opencl
 - 단 gog 는 **정적 단일 바이너리**라 시스템 libs 불필요 → 호스트 바이너리를 마운트 경로에 복사 + PATH 추가 → **영속·간단**(browser 와 결정적 차이).
 - 인증은 별도: `~/.config/gogcli-*` 마운트 + **Google OAuth(GCP 프로젝트·클라이언트) 설정** — 이건 native 든 Docker 든 동일한 *Google 연동의 본질적 관문*이지 Docker 탓이 아닙니다.
 
-> 📋 **단계별 설치 절차(검증 게이트 포함)**: [openclaw-docker-gog.md](./openclaw-docker-gog.md) 의 **STEP 1~6** 참조 — 바이너리 복사·config 마운트·keyring env·실 API 검증, 그리고 봇이 "이메일 도구 없음" 으로 막히는 **계정 불일치 함정 회피(STEP 5)** 까지.
+> 📋 **단계별 설치 절차(검증 게이트 포함)**: [openclaw-docker-add-gog.md](./openclaw-docker-add-gog.md) 의 **STEP 1~6** 참조 — 바이너리 복사·config 마운트·keyring env·실 API 검증, 그리고 봇이 "이메일 도구 없음" 으로 막히는 **계정 불일치 함정 회피(STEP 5)** 까지.
 
 ### 일반 규칙
 

@@ -1,34 +1,13 @@
 # OpenClaw Docker 설치
-
-> 공식 문서: <https://docs.openclaw.ai/install/docker>
-
-**왜 컨테이너**: 호스트에 직접 설치하면 user 권한 그대로라 탈취 시 피해가 크지만, 컨테이너는 피해가 boundary 로 제한됨.
-
-## 이 가이드 사용법 (사용자 / AI 에이전트 공통)
-
-- **설치 형태**: 컨테이너 1개 = **운영(production)**
-- **AI 에이전트가 대화형으로 진행할 때**:
-  1. 전제(아래)부터 점검 — `docker --version` · `docker compose version` · `git --version`.
-  2. **사용자 직접 단계**(브라우저·폰 조작)에선 멈추고 안내 — Claude OAuth 로그인(3단계)·BotFather 토큰+텔레그램 pairing(6단계)·Control UI(7단계).
-
-## 전제
-
-- **WSL2** + **Docker Engine + Docker Compose v2** + **git**
-- **클라우드 AI 구독** (저자: Anthropic Claude Max)
-- **Claude Code** (사실상 전제 — skill 워크플로우 + 아래 자격증명 선반입에 사용):
-  ```bash
-  curl -fsSL https://claude.ai/install.sh | bash
-  ```
-
----
+- **Why?**: 호스트에 직접 설치하면 user 권한 그대로라 탈취 시 피해가 크지만, 컨테이너는 피해가 boundary 로 제한됨.   
+- OpenClaw에서 제공하는 docker 설치 (<https://docs.openclaw.ai/install/docker>)와는 달리 저자는 Claude Code CLI를 OAuth로 설치하기 위해서 아래와 같이 변경하여 진행함
 
 ## 1. 저장소 클론
-
-> `setup.sh`·`docker-compose.yml`(이 clone)와 이미지(`OPENCLAW_IMAGE`, 4단계)는 **같은 버전이어야** 한다 — 어긋나면 setup.sh 가 이미지가 모르는 CLI 옵션을 넘겨 `OpenClaw does not recognize option ...` 으로 깨진다(저자 실측: clone=2026.5.25 ↔ 이미지=2026.5.20 시 `--suppress-gateway-token-output` 거부). 그래서 4단계 이미지 핀과 **같은 태그로 clone 도 핀**한다.
-
 ```bash
 git clone --branch v2026.5.20 https://github.com/openclaw/openclaw.git ~/projects/openclaw-docker
 ```
+- 2026.05.27 기준 최신 이미지에 Claude Code CLI가 없어 2026.05.20 버전으로 고정함   
+- `setup.sh`·`docker-compose.yml`와 이미지(`OPENCLAW_IMAGE`)는 **같은 버전이어야**  함.
 
 ```bash
 cd ~/projects/openclaw-docker
@@ -36,70 +15,42 @@ cd ~/projects/openclaw-docker
 
 ## 2. 컨테이너 데이터 폴더 준비
 
-> 컨테이너가 읽고 쓰는 설정·데이터(bind-mount)를 둘 호스트 폴더. **운영(production)은 공식 기본 `~/.openclaw`** 를 그대로 쓴다 — 별도 지정 없이 `docker compose up` 만으로 뜨도록(이게 이 가이드의 핵심). 컨테이너 user `node`(uid 1000) 소유로 맞춘다.
-
+- OpenClaw 컨테이너가 사용할(=mount) 폴더는 WSL(=host)에 미리 생성해야 함
 ```bash
 mkdir -p ~/.openclaw/workspace ~/.openclaw/.claude
 ```
-
+- 컨테이너 user `node`(uid 1000) 소유로 맞춘다.
 ```bash
 sudo chown -R 1000:1000 ~/.openclaw
 ```
 
 ## 3. Claude 자격증명 선반입 (OAuth 방식 — setup 전 필수)
-
-> onboarding 은 *기존* claude 자격증명을 재사용하므로, 미리 없으면 `Claude CLI is not authenticated` 로 중단됨. 호스트 `~/.claude` 와 **독립 lineage** 가 되도록 별도 로그인(복사 X — 회전 시 호스트가 로그아웃됨). *API 키 방식이면 이 단계 생략.*
->
-> **사용자 직접**: `auth login` 은 **브라우저 OAuth 승인**이 필요합니다 — 에이전트는 명령만 실행하고, 출력된 URL 승인은 사용자가 합니다.
-
-호스트에 Claude Code 가 있으면 (간단):
-
+- Claude Code OAuth 토큰을 #2에서 미리 준비한 폴더에 추가로 발급받아 저장
 ```bash
 CLAUDE_CONFIG_DIR="$HOME/.openclaw/.claude" claude auth login
 ```
 
-없으면 (컨테이너 번들로):
-
-```bash
-docker run --rm -it -u node -v ~/.openclaw/.claude:/home/node/.claude \
-  --entrypoint /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude \
-  ghcr.io/openclaw/openclaw:2026.5.20 auth login
-```
-
-확인 (파일 생기면 OK):
-
-```bash
-ls -l ~/.openclaw/.claude/.credentials.json
-```
 
 ## 4. 환경변수 export + 셋업 실행
-
-> `setup.sh` 는 `.env` 가 아니라 **셸 환경변수**를 봄 → 반드시 `export`. (`.claude` 마운트가 토큰을 영속화.)
-
-**운영(production)** — 공식 기본값(`~/.openclaw` + 포트 18789/18790)을 그대로 쓰므로 이미지만 지정. **검증된 버전으로 핀할 것 (`:latest` 금지)**:
-
+- 사용할 OpenClaw 이미지를 #1에서 지정한 것과 같도록 선언   
+- 컨테이너 내부에서 Claude Code를 인식할 수 있도록 환경변수 선언
 ```bash
 export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:2026.5.20"
 export OPENCLAW_EXTRA_MOUNTS="$HOME/.openclaw/.claude:/home/node/.claude"
 ```
 
-> ⚠️ **`OPENCLAW_EXTRA_MOUNTS` 는 onboarding 인증의 필수 조건 (저자 실측 2026-05-26)**: onboarding 은 claude 를 실행하는 게 아니라 `$HOME/.claude/.credentials.json`(컨테이너에선 `/home/node/.claude/.credentials.json`)을 **파일로 직접 읽어** 인증을 확인한다 (`CLAUDE_CONFIG_DIR` 은 안 봄 — `resolveClaudeCliCredentialsPath` 가 HOME 기준). 이 mount 가 없으면 3단계에서 선반입한 자격증명이 그 경로에 안 보여 `Claude CLI is not authenticated on this host` 로 중단된다. **반드시 `setup.sh` *전에* export** — 그래야 setup.sh 가 EXTRA_MOUNTS 로 만든 overlay 가 onboarding 컨테이너에 적용된다. (5단계 extra.yml 의 `.claude` 마운트는 *onboarding 이후* 라 인증 단계엔 늦다.)
-
-> ⚠️ **`:latest` 쓰지 말 것 (저자 실측 2026-05-26)**: `2026.5.22` 부터 이미지에서 **번들 claude CLI 가 제거**되어, 이 가이드의 "Anthropic Claude CLI" 인증(3단계 선반입 + 5단계 PATH fix 의 `claude-agent-sdk-linux-x64/claude` 경로)이 `Claude CLI is not authenticated` / `EPIPE` 로 통째로 깨진다. `:2026.5.20` 은 번들 claude 를 포함한 *검증된* 버전(ghcr pull 가능). 신버전은 `claude-agent-acp` 기반 인증으로 옮겨갔으므로, 버전을 올리려면 그 흐름에 맞춰 본 문서(3·5단계)를 **먼저 갱신**한 뒤 핀을 바꿀 것.
-
 ```bash
 ./scripts/docker/setup.sh
 ```
-
-위저드: *personal-by-default* → **Y**, *Setup mode* → **QuickStart**, *Provider* → **Anthropic OAuth (claude-cli)**.
-
-> ⚠️ 출력의 `Config:` 가 의도한 폴더(`/home/<you>/.openclaw`)와 일치해야 정상. `Building ... openclaw:local`(ghcr 이미지 대신 로컬 빌드) 이 보이면 `OPENCLAW_IMAGE` 미전달 → `Ctrl+C` 후 4단계부터 다시.
+- OpenClaw 초기설정
+   - *personal-by-default* → **Y**
+   - *Setup mode* → **QuickStart**
+   - *Provider* → **Anthropic OAuth (claude-cli)**
+   - 나머지는 skip 하고 나중에 설정 진행
 
 ## 5. PATH fix — 번들 claude 를 PATH 에 노출 (★필수)
-
-> **이거 안 하면 모든 채널 메시지가 `Something went wrong` 으로 실패한다.** 이미지의 claude 가 PATH 에 없어 openclaw 가 bare `claude` 를 spawn 할 때 ENOENT→EPIPE. SDK 경로를 PATH 앞에 붙여 해결. (`.claude` 마운트도 같은 파일에 둠.)
-
-setup.sh 가 만든 `docker-compose.extra.yml` 을 PATH 포함본으로 덮어씀:
+- 설정이 완료된 후 컨테이너 내부에서 Claude code를 PATH에 등록
+- setup.sh 가 만든 `docker-compose.extra.yml` 을 PATH 포함본으로 덮어씀:
 
 ```bash
 cat > ~/projects/openclaw-docker/docker-compose.extra.yml <<EOF
@@ -116,8 +67,6 @@ services:
       - PATH=/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EOF
 ```
-
-> 같은 `extra.yml` 에 **gog·vault 마운트**(2nd-brain 통합)를 함께 얹는다 — gog config(`~/.config/gogcli-openclaw-container`), vault(`~/projects/2nd-brain-vault`), `GOG_KEYRING_PASSWORD`·`GMAIL_ROUTER_*` env. 단계별: [openclaw-docker-gog.md](./openclaw-docker-gog.md).
 
 재생성 + 확인:
 
@@ -332,7 +281,7 @@ OpenClaw 텔레그램은 수신 메시지를 spool(`<config>/telegram/ingress-sp
 
 봇이 Gmail·Calendar·Drive·Tasks 등을 다루려면 gog CLI 를 컨테이너에 붙입니다. gog 는 정적 단일 바이너리라 browser 와 달리 시스템 deps 없이 됩니다.
 
-→ 단계별 설치(STEP 1~6 — 검증 게이트 + 계정 불일치 함정 회피): **[openclaw-docker-gog.md](./openclaw-docker-gog.md)**
+→ 단계별 설치(STEP 1~6 — 검증 게이트 + 계정 불일치 함정 회피): **[openclaw-docker-add-gog.md](./openclaw-docker-add-gog.md)**
 
 ## 트러블슈팅 (요약)
 

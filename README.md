@@ -61,7 +61,7 @@ git clone https://github.com/ai4radmed/2nd-brain.git ~/projects/2nd-brain
 ```
 7. OpenClaw docker 설치: [docs/openclaw-docker-install.md](./docs/openclaw-docker-install.md)
 8. 설치 후 기본 스킬·활용: [docs/openclaw-skills.md](./docs/openclaw-skills.md)
-9. (선택) gog 로 Google Workspace(메일·일정·할일) 연계: [docs/openclaw-docker-gog.md](./docs/openclaw-docker-gog.md)
+9. (선택) gog 로 Google Workspace(메일·일정·할일) 연계: [docs/openclaw-docker-add-gog.md](./docs/openclaw-docker-add-gog.md)
 10. (선택) 문서 파서 컨테이너 — PDF·docx·xlsx 를 **로컬에서 markdown 으로** 변환(외부 API 0, 재무·민감자료 leak 방지): [docs/2nd-brain-parser-setup.md](./docs/2nd-brain-parser-setup.md). `docker pull ghcr.io/benkorea/2nd-brain-parser` 로 prebuilt 이미지를 받아 구동하며, 자료 흡수(brainify)의 **선행 파서**다. 어디서 돌릴지(watchdog 회피 배치)=[docs/2nd-brain-parser-strategy.md](./docs/2nd-brain-parser-strategy.md).
 11. 내 vault 만들기: `./bootstrap.sh` 실행 — 빈 PARA 골격(knowledge/ + sources/) + 가이드를 `@`-import 하는 얇은 `CLAUDE.md` 자동 생성. 이후 운영 방법론은 [docs/brain-system/](./docs/brain-system/) 참조, 자료 흡수는 brainify.
 
