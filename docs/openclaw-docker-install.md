@@ -80,7 +80,10 @@ ls -l ~/.openclaw/.claude/.credentials.json
 
 ```bash
 export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:2026.5.20"
+export OPENCLAW_EXTRA_MOUNTS="$HOME/.openclaw/.claude:/home/node/.claude"
 ```
+
+> ⚠️ **`OPENCLAW_EXTRA_MOUNTS` 는 onboarding 인증의 필수 조건 (저자 실측 2026-05-26)**: onboarding 은 claude 를 실행하는 게 아니라 `$HOME/.claude/.credentials.json`(컨테이너에선 `/home/node/.claude/.credentials.json`)을 **파일로 직접 읽어** 인증을 확인한다 (`CLAUDE_CONFIG_DIR` 은 안 봄 — `resolveClaudeCliCredentialsPath` 가 HOME 기준). 이 mount 가 없으면 3단계에서 선반입한 자격증명이 그 경로에 안 보여 `Claude CLI is not authenticated on this host` 로 중단된다. **반드시 `setup.sh` *전에* export** — 그래야 setup.sh 가 EXTRA_MOUNTS 로 만든 overlay 가 onboarding 컨테이너에 적용된다. (5단계 extra.yml 의 `.claude` 마운트는 *onboarding 이후* 라 인증 단계엔 늦다.)
 
 > ⚠️ **`:latest` 쓰지 말 것 (저자 실측 2026-05-26)**: `2026.5.22` 부터 이미지에서 **번들 claude CLI 가 제거**되어, 이 가이드의 "Anthropic Claude CLI" 인증(3단계 선반입 + 5단계 PATH fix 의 `claude-agent-sdk-linux-x64/claude` 경로)이 `Claude CLI is not authenticated` / `EPIPE` 로 통째로 깨진다. `:2026.5.20` 은 번들 claude 를 포함한 *검증된* 버전(ghcr pull 가능). 신버전은 `claude-agent-acp` 기반 인증으로 옮겨갔으므로, 버전을 올리려면 그 흐름에 맞춰 본 문서(3·5단계)를 **먼저 갱신**한 뒤 핀을 바꿀 것.
 
