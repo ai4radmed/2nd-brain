@@ -310,7 +310,29 @@ needs-setup 스킬 없이, 텔레그램으로 바로 되는 활용입니다.
 ### 구조적 하한 (못 줄이는 부분)
 자연어 매개라 매 턴 "읽고→생각하고→툴 호출→결과 읽고→응답" LLM 루프를 돕니다 → 직접 `gog`(2초)보다 **항상 느림**(최적화해도 단순 작업 **~5~10초**). **즉답**이 필요하면 직접 gog/Claude Code, **폰·비동기·cron·푸시**가 가치면 봇.
 
-> 느림의 *구조적 원인*(매 턴 시스템프롬프트 23.5KB + 스킬 + MCP + 이력 누적)은 [openclaw-docker-install.md](./openclaw-docker-install.md) 의 "왜 느린가" 부록 참조.
+### 왜 느린가 — 단계별 프롬프트 누적 (상세)
+
+봇 응답이 느린 건 **컨테이너 때문이 아니라**(Docker 오버헤드는 무시 가능), 메시지가 `텔레그램 → 게이트웨이 → claude-cli → API` 로 가며 **단계마다 처리할 양이 누적**되기 때문입니다.
+
+**① 텔레그램 → 게이트웨이**: 사용자 원문(수~수십 자) + 채널·발신자 메타만. **미미함.**
+
+**② 게이트웨이 → claude-cli (여기서 폭증)** — 짧은 메시지를 무거운 claude 호출로 감쌉니다:
+
+| 항목 | 주입 방식 | 실측 | 비고 |
+|---|---|---|---|
+| 시스템 프롬프트 | `--append-system-prompt-file` | ~23.5KB | openclaw 운영지침 + 워크스페이스(AGENTS.md 7.8KB·SOUL·IDENTITY/USER/TOOLS/HEARTBEAT). **첫 턴만** |
+| 스킬 | `--plugin-dir` | ~12.8KB | 스킬 정의 묶음 |
+| MCP 도구 | `--mcp-config` | 스키마 로드 | `mcp__openclaw__*` 도구 스키마 |
+| 대화 이력 | `--resume` | 누적↑ | 턴마다 증가 |
+| 확장 thinking | `--effort medium` | — | 추론 지연↑, partial 미스트림 |
+
+**③ claude-cli → API**: claude 자체 baseline(Claude Code 시스템프롬프트 + 내장도구 ~50개) 추가 — *openclaw 의 추가 부담은 아님*.
+
+→ **결과**: `"안녕"` 한 줄이 claude 가 실제 받는 입력으론 **시스템프롬프트 23.5KB + 스킬 12.8KB + MCP + 내장도구 + 누적이력 = 수만 토큰**(첫 턴). 입력↑ → TTFT↑, `--effort medium` thinking 은 partial 미스트림이라 **180s no-output watchdog** 위험, 매 턴 ~10초 전처리.
+
+**완화**: 가벼운 모델(haiku) + 하트비트 off + 스킬·워크스페이스 슬림화 + 2번째 턴부터 resume·prompt cache. 간헐 stall 자동복구는 [openclaw-docker-operations.md](./openclaw-docker-operations.md) 의 신뢰성 섹션.
+
+> 요점: **컨테이너화는 속도와 무관.** 느림의 본질은 게이트웨이가 매 턴 붙이는 *시스템프롬프트·스킬·MCP·이력 누적*이며, 호스트에서 직접 돌려도 동일.
 
 ## 정리
 
@@ -318,4 +340,4 @@ needs-setup 스킬 없이, 텔레그램으로 바로 되는 활용입니다.
 - 일반 사용자 체감 가치는 **A(일상·업무 6개) + D(기본 대화)**, 나머지는 개발/관리자용이거나 설정이 필요.
 - 더 많은 일상 기능(이메일·캘린더·GitHub)은 "needs setup" 을 개별 해제.
 
-> 다음: 스킬 추가·제작은 [openclaw-docker-install.md](./openclaw-docker-install.md) 의 운영 흐름과 OpenClaw 공식 문서 <https://docs.openclaw.ai> 를 참고하세요.
+> 다음: 무인 자동화(cron·사이드카)·신뢰성은 [openclaw-docker-operations.md](./openclaw-docker-operations.md), 스킬 제작은 OpenClaw 공식 문서 <https://docs.openclaw.ai> 참고.

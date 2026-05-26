@@ -14,7 +14,7 @@
 - 작업이 **결정형**(검색·다운로드·파일이동 등 판단 0)이고 *반응형 발화*(메신저/cron)가 필요하면 → **OpenClaw 스킬**. 에이전트는 `run.py` 한 줄만 부르므로 stall 노출이 wrapper 한 겹뿐.
 - 작업이 **LLM 판단 그 자체**(PARA 분류·요약·링크)라 run.py로 환원 불가하면 → **Claude Code 스킬**. OpenClaw 임베디드 turn에서 돌리면 그 긴 추론이 90초 no-output watchdog에 걸리므로, watchdog 없는 Claude Code 런타임에서 실행.
 
-> 자세한 배경: [`docs/openclaw-skills.md`](../../docs/openclaw-skills.md), [`docs/openclaw-docker-install.md`](../../docs/openclaw-docker-install.md)(스트리밍 stall·신뢰성 섹션).
+> 자세한 배경: [`docs/openclaw-skills.md`](../../docs/openclaw-skills.md), [`docs/openclaw-docker-operations.md`](../../docs/openclaw-docker-operations.md)(스트리밍 stall·신뢰성 섹션).
 
 ## 설치 일반 절차
 

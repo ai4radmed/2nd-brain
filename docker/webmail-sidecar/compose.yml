@@ -2,7 +2,7 @@
 #
 # 게이트웨이(텍스트형)와 분리된 일회성 폴 컨테이너. OpenClaw 에이전트/LLM 미사용 — 순수 스케줄 스크립트.
 # MailPlug 같은 anti-headless SPA 는 headless 면 백지 → headed(가상 디스플레이 Xvfb)로만 렌더.
-# 그래서 게이트웨이(브라우저 없음)와 별도 런타임으로 둔다. 상세: ../../docs/openclaw-docker-install.md §9b
+# 그래서 게이트웨이(브라우저 없음)와 별도 런타임으로 둔다. 상세: ../../docs/openclaw-docker-operations.md §9b
 #
 # 한 번 폴:
 #   docker compose -f compose.yml run --rm webmail-sidecar
