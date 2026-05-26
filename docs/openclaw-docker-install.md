@@ -103,15 +103,34 @@ docker exec -e OPENCLAW_GATEWAY_PORT=18789 "$GW" \
 
 이후 봇에 다시 메시지 → 정상 응답.
 
-## 7. Control UI 접속
+## 7. Control UI 접속 (로컬 전용·선택)
 
-브라우저에서 `http://127.0.0.1:18789/` 열고 `.env` 의 `OPENCLAW_GATEWAY_TOKEN` 붙여넣기. 토큰 박힌 URL 재발급:
+> Control UI = 웹 **대시보드**(게이트웨이 웹 관리창). **`127.0.0.1` 로컬에서만** 열리므로 *원격(집)에서는 Telegram 이 주 창구*이고, 이건 로컬에서 상태·로그·설정을 볼 때 쓰는 **선택** 단계입니다.
+
+브라우저에서 `http://127.0.0.1:18789/` 열고 **게이트웨이 토큰**을 입력칸에 붙여넣습니다. 토큰 위치:
+- `~/projects/openclaw-docker/.env` 의 `OPENCLAW_GATEWAY_TOKEN` (setup.sh 가 기록 — **`~/.openclaw/.env` 아님**에 주의), 또는
+- 권위 원본 `~/.openclaw/openclaw.json` 의 `gateway.auth.token`.
+
+토큰 박힌 URL 로 바로 열려면:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.extra.yml run --rm openclaw-cli dashboard --no-open
 ```
 
-브라우저도 device 페어링이 필요하면 `access not configured` 대신 requestId 가 뜸 → `... devices approve <requestId>` (exec 방식, 6단계와 동일).
+### 트러블슈팅 — 토큰은 맞는데 연결 안 됨 (저자 실측, 반복 발생)
+
+게이트웨이 로그에서 `[ws] ... reason=` 를 먼저 확인:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.extra.yml logs --tail=30 openclaw-gateway | grep '\[ws\]'
+```
+- `reason=pairing required: device is not approved yet (requestId: ...)` / `device_token_mismatch` → **브라우저 device 승인 필요**:
+  ```bash
+  GW=$(docker ps --filter name=openclaw-gateway --format '{{.Names}}' | head -1)
+  docker exec -e OPENCLAW_GATEWAY_PORT=18789 "$GW" node dist/index.js devices list            # Pending 의 requestId 확인
+  docker exec -e OPENCLAW_GATEWAY_PORT=18789 "$GW" node dist/index.js devices approve <requestId>
+  ```
+  승인 후 브라우저 **새로고침** → 연결.
+- `reason=device signature expired` 가 (승인 후에도) **반복** → 브라우저 호스트(Windows)와 게이트웨이(WSL/컨테이너)의 **시계 차이**. 컨테이너=WSL 시각은 보통 동기이니 **Windows 시계 동기**(설정 → 시간 및 언어 → "지금 동기화"), 필요시 WSL `sudo hwclock -s`.
 
 ## 8. 운영
 
