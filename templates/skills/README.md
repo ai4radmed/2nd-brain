@@ -4,7 +4,7 @@
 
 | 폴더 | 런타임 | 무엇이 실행하나 | 설치(복사) 대상 |
 |---|---|---|---|
-| [`openclaw/`](openclaw/) | **OpenClaw** | 봇(Telegram·cron)이 발화하는 스킬. 결정형(run.py) 작업에 적합 — LLM 핫패스 최소화로 watchdog stall 회피. | `~/.openclaw/workspace/skills/` (Docker 운영 시 `~/.openclaw-docker/workspace/skills/`) |
+| [`openclaw/`](openclaw/) | **OpenClaw** | 봇(Telegram·cron)이 발화하는 스킬. 결정형(run.py) 작업에 적합 — LLM 핫패스 최소화로 watchdog stall 회피. | `~/.openclaw/workspace/skills/` (Docker·native 동일 — 컨테이너가 `~/.openclaw` 를 인계) |
 | [`claude-code/`](claude-code/) | **Claude Code** | Claude Code 세션 또는 `claude -p`(cron)가 실행하는 스킬. 무거운 LLM 판단(요약·분류·링크)에 적합 — OpenClaw 임베디드 turn watchdog 밖에서 동작. | `~/.claude/skills/` |
 
 ## 런타임 선택 기준

@@ -42,7 +42,15 @@ docker compose -f docker-compose.yml -f docker-compose.extra.yml logs --tail=30 
 
 ### 9a. 게이트웨이 cron — gmail-label-actions (무인 메일 처리)
 
-라벨(1~8) 단 메일을 Calendar/Tasks/Drafts 후속작업으로 완결·캡처. 브라우저 비의존이라 게이트웨이 cron 에서 안전. `~/.openclaw/cron/jobs.json` 에 잡 추가:
+라벨(1~8) 단 메일을 Calendar/Tasks/Drafts 후속작업으로 완결·캡처. 브라우저 비의존이라 게이트웨이 cron 에서 안전.
+
+> **전제 — 이 스킬은 번들이 아니라 *템플릿*이라 먼저 설치해야 한다** (저자 실측: 설치 안 하면 봇이 스킬 자체를 모름):
+> ```bash
+> cp -r ~/projects/2nd-brain/templates/skills/openclaw/gmail-label-actions ~/.openclaw/workspace/skills/
+> ```
+> 그 뒤 ① env `GMAIL_ROUTER_ACCOUNT`(gog 계정과 동일) 를 컨테이너에 주입(`.env` + extra.yml — `GOG_KEYRING_PASSWORD` 와 동일 방식), ② Gmail 라벨 `1 저장`…`8 회신`+`9 완료`(9개) 준비, ③ 재생성. 설치·적응·라벨 규칙은 [그 스킬 README](../templates/skills/openclaw/gmail-label-actions/README.md), 런타임(OpenClaw vs Claude Code) 구분은 [templates/skills/README.md](../templates/skills/README.md).
+
+설치 후 `~/.openclaw/cron/jobs.json` 에 잡 추가:
 
 ```jsonc
 { "version": 1, "jobs": [{
