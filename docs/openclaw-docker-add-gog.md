@@ -1,17 +1,22 @@
 # OpenClaw Docker 컨테이너에 gog 붙이기 — Google Workspace (Gmail·Calendar·Tasks)
+- gog는 Google Workspace(Gmail·Calendar·Tasks·Drive·Docs·Sheets)를 다루는 도구
+- [openclaw-docker-install.md](./openclaw-docker-install.md) 로 컨테이너 설치를 마친 뒤 진행하는 **선택** 단계
+- gog 스킬은 OpenClaw docker 설치되어서도 추가 설치가 가능한 것처럼 보이지만 단순히 진행하면 오류가 발생하여 저자는 아래과 같이 진행함.
 
-> [openclaw-docker-install.md](./openclaw-docker-install.md) 로 컨테이너 설치를 마친 뒤 진행하는 **선택** 단계입니다. gog 를 붙이면 봇이 Gmail·Calendar·Drive·Tasks·Docs·Sheets 를 다룰 수 있습니다. (능력 범위·한계는 [openclaw-skills.md](./openclaw-skills.md) 참조)
-
-gog 스킬은 번들돼 있지만 **gog 바이너리·인증이 따로 필요**합니다(대시보드 활성화는 brew 설치라 컨테이너에선 실패). gog 는 **정적 단일 바이너리**라 browser 와 달리 시스템 deps 없이 됩니다.
-
-> ⚠️ **반드시 한 단계씩, 각 STEP 의 _검증_ 이 통과한 뒤 다음으로.** 한꺼번에 바꾸면 실패 시 원인 추적이 불가능합니다(저자 실측 교훈 — browser 설정에서 겪음).
-
-**전제 (gog 자체 인증)**: 호스트에 gog 가 설치되어 있고, **컨테이너 전용 OAuth 클라이언트**로 인증된 격리 config 디렉토리가 있어야 합니다. gog 설치·Google OAuth(GCP 프로젝트/클라이언트) 는 <https://gogcli.sh> 참조. 호스트 메인 gog 와 **병행**하려면 별도 `--client` 로 인증해 토큰을 분리하세요:
-> ```bash
-> gog auth credentials set <client_secret.json> --client openclaw-container
-> gog auth add <account@gmail.com> --client openclaw-container   # 브라우저 OAuth (대화형)
+## 전제조건: gog 자체 인증
+- 호스트에 gog가 미리 설치되어 있고 인증되어 있다고 가정함 (gog 설치·Google OAuth(GCP 프로젝트/클라이언트) 는 <https://gogcli.sh> 참조)
+- **컨테이너 전용 OAuth 클라이언트**로 인증된 격리 config 디렉토리가 있어야 함.
+- 호스트 메인 gog(`~/.config/gogcli`)와 토큰을 분리하려면 **별도 config 디렉토리**(`~/.config/gogcli-openclaw-container`)에 인증해야 한다. 그런데 **gog 엔 config-dir 플래그·env 가 없어**(항상 `~/.config/gogcli` 만 읽음), 별도 디렉토리는 **HOME 리다이렉션(symlink) 트릭**으로만 만든다 (저자 실측 — `--client` 만 쓰면 호스트 메인 `~/.config/gogcli` 에 써져 *오염*됨):
+>```bash
+># client_secret 은 호스트 메인 것 재사용 가능 (새 GCP client 불필요)
+>mkdir -p ~/.config/gogcli-openclaw-container
+>T=$(mktemp -d); mkdir -p "$T/.config"; ln -s ~/.config/gogcli-openclaw-container "$T/.config/gogcli"
+>export GOG_KEYRING_PASSWORD='<keyring-암호>'   # 기억할 것 (STEP 3 .env 에 그대로 씀)
+>HOME="$T" gog auth credentials set ~/.config/gog/client_secret.json --client openclaw-container
+>HOME="$T" gog auth add <account@gmail.com> --client openclaw-container   # 브라우저 OAuth (대화형)
+>rm -rf "$T"
 > ```
-> 결과 config 디렉토리: `~/.config/gogcli-openclaw-container/`, keyring 암호: 안전한 곳에 보관(아래 `GOG_KEYRING_PASSWORD`).
+> 결과: `~/.config/gogcli-openclaw-container/` 에 `config.json`(account_clients) + `keyring`(토큰) 생성. 이 keyring 암호를 STEP 3 의 `GOG_KEYRING_PASSWORD` 로 재사용.
 
 ---
 
