@@ -24,8 +24,10 @@
 
 ## 1. 저장소 클론
 
+> `setup.sh`·`docker-compose.yml`(이 clone)와 이미지(`OPENCLAW_IMAGE`, 4단계)는 **같은 버전이어야** 한다 — 어긋나면 setup.sh 가 이미지가 모르는 CLI 옵션을 넘겨 `OpenClaw does not recognize option ...` 으로 깨진다(저자 실측: clone=2026.5.25 ↔ 이미지=2026.5.20 시 `--suppress-gateway-token-output` 거부). 그래서 4단계 이미지 핀과 **같은 태그로 clone 도 핀**한다.
+
 ```bash
-git clone https://github.com/openclaw/openclaw.git ~/projects/openclaw-docker
+git clone --branch v2026.5.20 https://github.com/openclaw/openclaw.git ~/projects/openclaw-docker
 ```
 
 ```bash
