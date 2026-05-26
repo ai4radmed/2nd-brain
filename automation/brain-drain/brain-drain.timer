@@ -2,9 +2,13 @@
 Description=2nd-brain refine+brainify drain — periodic poll
 
 [Timer]
-OnBootSec=5min               # parser-drain(2min) 뒤에 — 부팅 시 extract 가 먼저 돌게
-OnUnitInactiveSec=10min      # 드레인 *종료* 10분 후 재발화 (긴 드레인과 겹침 없음)
-Persistent=true
+# OnActiveSec: 타이머 활성(부팅·enable·daemon-reload)마다 시드 → 체인 재무장.
+# 5분 = parser-drain(2min) 뒤라 부팅 시 extract 가 먼저 돈다.
+# OnBootSec 단독은 부팅 때만 시드라 daemon-reload 후 NEXT 가 비어 재무장 실패함.
+# (systemd 는 인라인 주석 미지원 — 주석은 반드시 별도 줄.)
+OnActiveSec=5min
+# OnUnitInactiveSec: 드레인 *종료* 10분 후 재발화 (긴 드레인과 겹침 없음).
+OnUnitInactiveSec=10min
 
 [Install]
 WantedBy=timers.target
