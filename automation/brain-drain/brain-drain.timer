@@ -1,0 +1,10 @@
+[Unit]
+Description=2nd-brain refine+brainify drain — periodic poll
+
+[Timer]
+OnBootSec=5min               # parser-drain(2min) 뒤에 — 부팅 시 extract 가 먼저 돌게
+OnUnitInactiveSec=10min      # 드레인 *종료* 10분 후 재발화 (긴 드레인과 겹침 없음)
+Persistent=true
+
+[Install]
+WantedBy=timers.target

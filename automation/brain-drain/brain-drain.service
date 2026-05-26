@@ -1,0 +1,9 @@
+[Unit]
+Description=2nd-brain refine+brainify drain (host, headless claude -p)
+After=docker.service
+# parser-drain 가 만든 _parse 를 refine→brainify. brainify 의 비-PDF fallback 만 docker 사용.
+# 게이트웨이 agent-turn 밖 — 호스트 claude(OAuth ~/.claude)로 무인 실행.
+
+[Service]
+Type=oneshot
+ExecStart=%h/projects/2nd-brain/automation/brain-drain/brain-drain.sh

@@ -26,7 +26,7 @@
 - **이름 = `2nd-brain-parser`(우산) = extract(pre) + refine(post)**. extract=결정형(docling+mineru+diff, 컨테이너+parser-drain host timer), refine=비결정형(diverge 비전검증→refined.md, Claude Code 스킬). refine 까지가 "파싱"의 경계 — 그 다음 PARA·노트화는 brainify. (2026-05-26 분리: Phase 2=extract, Phase 3=refine, Phase 4=brainify.)
 - **핸드오프 = 파일 마커**: extract → `_parse/{docling,mineru,diff}.json` / refine → `_parse/refined.md`(멱등 완료 마커) / brainify → 동반 노트 frontmatter `parse:`. 각 단계는 앞 단계의 산출 파일 존재만 보고 재개(중단·다기기 동기 안전).
 - verdict=match/single 은 refine 이 docling 자동승격(LLM 0), diverge 만 Claude 비전검증. diverge 는 보수적 임계(false-positive 흔함) → **턴당 1문서**로 fan-out 차단.
-- **자동화 단계**: extract 는 이미 무인(parser-drain systemd timer). refine·brainify 는 현재 attended(`/refine`→`/brainify`). 무인화(host timer `claude -p "/refine"`)는 inbox 볼륨이 병목일 때 — extract 와 대칭. 그때까지 attended.
+- **자동화 단계**: extract 는 이미 무인(parser-drain systemd timer). refine·brainify 무인화는 **`brain-drain` host timer**(`automation/brain-drain/`, 2026-05-26 구축) — extract 와 대칭. Phase R: refine `match/single`=`refine.py promote`(LLM 0), `diverge`=`claude -p "/refine --headless"`(vision). Phase B: `claude -p "/brainify --headless"`. 항목당+드레인당 비용상한, `/cron` 토글. **opt-in**: 검증 후 `systemctl --user enable --now brain-drain.timer` 하기 전까진 수동(`/refine`→`/brainify`)이 그대로 유효.
 - ※ 현재 `gmail-label-actions` 는 **capture-only**(스레드 `_thread.md` + 첨부 *원본* 저장; 파싱·앵커 0). 표 Phase 1 의 `parse: pending` 앵커는 *목표* 추가분.
 - ※ 구 `brainify-inbox` 스킬이 extract+refine+brainify 를 단일 스킬로 통합 수행했음(2026-05-13). refine 로직(refined.md 규약)의 원본 — 위 3-스킬 분리로 대체됨(supersede 예정).
 - Phase 2(결정형, 추론 0) = 게이트웨이 밖 데몬. 상한 없는 (A)가 감시 없는 표면에선 합법.
