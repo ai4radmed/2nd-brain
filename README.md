@@ -48,6 +48,33 @@
     - Claude Code CLI (OpenClaw가 제어할 AI agent이자, 설치를 대행하거나 오류 시 대책을 제안하는 역할)
     - OpenClaw 및 Telegram 설치
 
+## 저장소 모델·권위 (구조 이해)
+
+### 3-tier
+| tier | 저장소 | 내용 | 가시성 |
+|---|---|---|---|
+| **공개 설치킷** *(이곳)* | `ai4radmed/2nd-brain` | 설치문서·방법론·템플릿·골격·bootstrap | 공개 |
+| **데이터·운영** | `2nd-brain-vault` | knowledge + sources + 운영 `CLAUDE.md`(inline·self-sufficient·사용자 소유) | 비공개(SyncThing) |
+| **개인 운영** | `~/.claude/skills`·`~/.claude/commands`·`~/.openclaw/workspace` 등 | 개인 스킬·슬래시명령·config | 비공개 |
+
+원리: **데이터(무엇을 안다) / 코드·방법론(어떻게 한다, 공유가능) / 설정(나는 누구다, 개인)** 분리. 이 repo = *코드·방법론* tier.
+
+### upstream/downstream — 사용자는 pull-only, 개발자만 편집
+- **개발자**(저자): 여기서 *편집·commit·push*. **사용자**: clone 1회 → 버전업 시 `git pull` 만, **이 repo 편집 ✗**(편집 시 pull 충돌). 자기 작업물(개인 스킬·config·vault)은 *자기 repo* 로.
+- install 스크립트가 `templates/` 를 사용자 개인 위치로 *복사*. "개발자 것 ≠ 내 것을 같은 repo 에" 는 **canonical 출처 층**에서 성립 — 런타임 스킬 dir 은 dev-복사본+개인 스킬이 섞이며 둘 다 *사용자 소유*(정상).
+- **install 규율**: 멱등·비파괴(기존 사용자 파일 덮기 전 확인/스킵). 설치된 dev-스킬은 **직접 편집 말고 이름 바꿔 포크** → 다음 버전업이 내 커스터마이즈를 안 덮는다.
+
+### 권위 위계
+| 영역 | 정본 |
+|---|---|
+| 컴포넌트 설치 절차 | 이 repo `docs/` |
+| 공개 방법론 (PARA·companion note·brainify 일반론) | 이 repo `docs/brain-system/` |
+| **운영(개인) 규약 — 일상 권위** | **`2nd-brain-vault/CLAUDE.md`** (inline·self-sufficient, 본 repo `@`-import ✗) |
+| 다기기 동기 | 전략=`docs/setup/prerequisite-repos.md`·실행=`docs/multi-device-sync.md`; **repo 목록 권위=vault `repos.md`**, 실행=`/git-routine` |
+| OpenClaw 자체 | 공식 <https://docs.openclaw.ai> |
+
+> 이력: `2nd-brain-setup`→`2nd-brain` rename(2026-05-23) + 구 `2nd-brain-vault-guide`·`2nd-brain-docker` 흡수(2026-05-25, 공개 단일 입구 통합). 2026-05-27 `CLAUDE.md` 를 설치 전담으로 린화 + `@`-import fiction 제거(vault `CLAUDE.md` 는 inline·self-sufficient).
+
 ## 설치방법 (사용자)
 
 1. Windows 에서 WSL2 활성화
@@ -59,12 +86,12 @@
 ```bash
 git clone https://github.com/ai4radmed/2nd-brain.git ~/projects/2nd-brain
 ```
-7. OpenClaw docker 설치: [docs/openclaw-docker-install.md](./docs/openclaw-docker-install.md)
-8. 설치 후 기본 스킬·활용: [docs/openclaw-skills.md](./docs/openclaw-skills.md)
-9. (선택) **커스텀 스킬 템플릿 설치** — 복사해서 쓰는 스킬 예제(예: `gmail-label-actions` = 라벨 기반 메일 자동처리)를 워크스페이스로 설치: [templates/skills/](./templates/skills/) (런타임별 설치 대상·절차는 [templates/skills/README.md](./templates/skills/README.md))
-10. (선택) gog 로 Google Workspace(메일·일정·할일) 연계: [docs/openclaw-docker-add-gog.md](./docs/openclaw-docker-add-gog.md)
-11. (선택) 문서 파서 컨테이너 — PDF·docx·xlsx 를 **로컬에서 markdown 으로** 변환(외부 API 0, 재무·민감자료 leak 방지): [docs/2nd-brain-parser-setup.md](./docs/2nd-brain-parser-setup.md). `docker pull ghcr.io/benkorea/2nd-brain-parser` 로 prebuilt 이미지를 받아 구동하며, 자료 흡수(brainify)의 **선행 파서**다. 어디서 돌릴지(watchdog 회피 배치)=[docs/2nd-brain-parser-strategy.md](./docs/2nd-brain-parser-strategy.md).
-12. 내 vault 만들기: `./bootstrap.sh` 실행 — 빈 PARA 골격(knowledge/ + sources/) + 가이드를 `@`-import 하는 얇은 `CLAUDE.md` 자동 생성. 이후 운영 방법론은 [docs/brain-system/](./docs/brain-system/) 참조, 자료 흡수는 brainify.
+7. **내 vault 먼저 만들기**: `./bootstrap.sh` 실행 — 빈 PARA 골격(`knowledge/` + `sources/`) + 운영 `CLAUDE.md` 생성. ⚠️ **OpenClaw·파서 등 도커 구동보다 *먼저* 실행해야 한다** — 도커 bind 마운트 대상 폴더가 구동 시점에 없으면 Docker 가 *root 소유 빈 폴더*를 자동생성해 권한문제가 생긴다(특히 파서 컨테이너(12)가 vault 를 마운트). bootstrap 은 docker·OpenClaw 의존이 없어 클론 직후 가능하다. 운영 방법론은 [docs/brain-system/](./docs/brain-system/), 자료 흡수는 brainify.
+8. OpenClaw docker 설치: [docs/openclaw-docker-install.md](./docs/openclaw-docker-install.md)
+9. 설치 후 기본 스킬·활용: [docs/openclaw-skills.md](./docs/openclaw-skills.md)
+10. (선택) **커스텀 스킬 템플릿 설치** — 복사해서 쓰는 스킬 예제(예: `gmail-label-actions` = 라벨 기반 메일 자동처리)를 워크스페이스로 설치: [templates/skills/](./templates/skills/) (런타임별 설치 대상·절차는 [templates/skills/README.md](./templates/skills/README.md))
+11. (선택) gog 로 Google Workspace(메일·일정·할일) 연계: [docs/openclaw-docker-add-gog.md](./docs/openclaw-docker-add-gog.md)
+12. (선택) 문서 파서 컨테이너 — PDF·docx·xlsx 를 **로컬에서 markdown 으로** 변환(외부 API 0, 재무·민감자료 leak 방지): [docs/2nd-brain-parser-setup.md](./docs/2nd-brain-parser-setup.md). `docker pull ghcr.io/benkorea/2nd-brain-parser` 로 prebuilt 이미지를 받아 구동하며, 자료 흡수(brainify)의 **선행 파서**다. **vault(7)를 마운트하므로 7 이 선행돼야 한다.** 어디서 돌릴지(watchdog 회피 배치)=[docs/2nd-brain-parser-strategy.md](./docs/2nd-brain-parser-strategy.md).
 
 ## 설치방법 (AI Agent)
 
