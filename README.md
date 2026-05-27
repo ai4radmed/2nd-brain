@@ -39,6 +39,12 @@
 
 - 구글 지메일/캘린더/연락처/할일 등을 내 컴퓨터에서 제어할 수 있는 **gog CLI** 서비스를 사용함
 
+## 늘어나는 vault 를 클라우드 AI(Claude.ai·Gemini)로 검색하려면?
+
+- vault 가 커지면(수백~수천 노트) 컨텍스트 윈도우에 통째로 넣을 수 없다 → **검색(retrieval) 기반** 설계가 필요.
+- 정본 vault 1개를 **Claude=원격 MCP 검색 / Gemini=Google Drive 그라운딩**으로 노출하고, brainify 의 distill·MOC 규율로 검색 신호를 유지하는 것이 권장 아키텍처.
+- 원칙·아키텍처·단계적 경로·보안: **[docs/ai-search-strategy.md](./docs/ai-search-strategy.md)**
+
 ## 다른 사람도 2nd-brain을 사용할 수 있나요?
 
 - 원하시는 누구나 사용 가능합니다 (MIT License). 저자의 추천 환경은:

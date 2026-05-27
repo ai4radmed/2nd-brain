@@ -12,3 +12,5 @@
 ## 상세는 사람용 문서로
 
 저장소 3-tier·설치 흐름·upstream/downstream·권위 위계·이력 → **[README.md](./README.md)**. 컴포넌트 설치·방법론 → **[docs/](./docs/)**.
+
+핵심 전략 문서: 파싱→정제 [docs/2nd-brain-parser-strategy.md](./docs/2nd-brain-parser-strategy.md) · 다기기 동기 [docs/multi-device-sync.md](./docs/multi-device-sync.md) · **클라우드 AI 검색 [docs/ai-search-strategy.md](./docs/ai-search-strategy.md)** (자라는 vault 를 Claude.ai·Gemini 가 retrieval 로 검색).
