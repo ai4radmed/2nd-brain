@@ -56,6 +56,7 @@ export OPENCLAW_EXTRA_MOUNTS="$HOME/.openclaw/.claude:/home/node/.claude"
 cat > ~/projects/openclaw-docker/docker-compose.extra.yml <<EOF
 services:
   openclaw-gateway:
+    container_name: 2nd-brain-openclaw-gateway
     volumes:
       - $HOME/.openclaw/.claude:/home/node/.claude
     environment:
