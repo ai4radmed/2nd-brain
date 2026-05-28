@@ -31,6 +31,35 @@ docker compose -f docker-compose.yml -f docker-compose.extra.yml logs --tail=30 
   승인 후 브라우저 **새로고침** → 연결.
 - `reason=device signature expired` 가 (승인 후에도) **반복** → 브라우저 호스트(Windows)와 게이트웨이(WSL/컨테이너)의 **시계 차이**. 컨테이너=WSL 시각은 보통 동기이니 **Windows 시계 동기**(설정 → 시간 및 언어 → "지금 동기화"), 필요시 WSL `sudo hwclock -s`.
 
+### 트러블슈팅 — CLI `scope upgrade pending approval` (닭과 달걀 deadlock 의 정답 우회, 저자 실측 2026-05-28)
+
+CLI 가 `cron disable/enable` 같은 `operator.admin/write` 요구 명령을 호출하면 `scope upgrade pending approval (requestId: ...)` 또는 `pairing required: device is asking for more scopes than currently approved` 로 실패하는 케이스. **Control UI·Telegram 없이 CLI 자체로 자가 승인 가능** — `operator.pairing` 권한자가 자신·타 디바이스의 scope upgrade 를 승인할 수 있다는 OpenClaw 설계. Control UI 가 *자기 자신을 못 띄우는* 닭과 달걀 deadlock 일 때의 진짜 우회로:
+
+```bash
+GW=$(docker ps --filter name=openclaw-gateway --format '{{.Names}}' | head -1)
+TOK=$(docker exec "$GW" python3 -c "import json;print(json.load(open('/home/node/.openclaw/openclaw.json'))['gateway']['auth']['token'])")
+
+# ① 막힌 명령을 *한 번* 호출 — 실패해도 OK, pending 큐에 push 가 목적
+docker exec "$GW" node /app/dist/index.js cron disable <jobId> --token "$TOK"
+
+# ② devices list 의 Pending 섹션에서 requestId 복사 (앞 §과 같은 명령)
+docker exec "$GW" node /app/dist/index.js devices list
+
+# ③ 자가 승인
+docker exec "$GW" node /app/dist/index.js devices approve <requestId> --token "$TOK"
+
+# ④ 막힌 명령 재시도 → 통과
+docker exec "$GW" node /app/dist/index.js cron disable <jobId> --token "$TOK"
+```
+
+승인 결과는 `~/.openclaw/devices/paired.json` 의 해당 디바이스 `approvedScopes` + `tokens.operator.scopes` 에 영속 — 다음번부터는 같은 명령 그냥 통과.
+
+함정:
+
+- **`devices approve --latest` 가 "No pending device pairing requests"** → 막힌 명령(①)을 다시 호출 안 했다는 신호. Pending 큐는 명령 호출이 push 함. ① 단계 필수.
+- **Telegram 채팅의 옛 "Pairing code: XXXX" 메시지는 *stale*** — `pairing list --channel telegram` 가 "No pending" + `~/.openclaw/credentials/telegram-pairing.json.requests:[]` 면 코드 만료. 봇에 새 메시지를 보내야 새 코드 (단 polling stall 이면 도달 안 함).
+- **Telegram polling `getUpdates stuck for ~220s` 만성 사이클** — health-monitor 가 220s 주기로 자동 restart 시키지만 *원인은 미해소*. 즉시성 필요하면 `docker compose -f docker-compose.yml -f docker-compose.extra.yml restart openclaw-gateway` 로 단발성 복구.
+
 ## 스킬·cron — 무인 자동화 (게이트웨이 cron · 사이드카 · 호스트 드레인)
 
 무인 주기 실행의 거처는 **(a) 브라우저를 쓰는지, (b) LLM 판단을 게이트웨이 안에서 할지 호스트에서 할지**로 갈린다. 게이트웨이 컨테이너(ghcr 이미지)에는 **playwright/chromium 이 없다**.
@@ -225,6 +254,7 @@ OpenClaw 텔레그램은 수신 메시지를 spool(`<config>/telegram/ingress-sp
 | 이미지 빌드 OOM (exit 137) | RAM 2GB+ 필요 |
 | gog `aes.KeyUnwrap(): integrity check failed` | `GOG_KEYRING_PASSWORD` 가 **gog 키링** 비번과 불일치. gog 키링(`~/.config/gogcli-openclaw-container/keyring`)은 OpenClaw 자체 credentials 와 **별개 비번** — 그 키링을 만든 비번을 줘야 함 |
 | `cron list`/`status` 가 `gateway token mismatch` | `--token <gateway.auth.token>` 전달 (위 9a 참조). remote.token 미설정이라 CLI 가 인증 못 함 |
+| `cron disable/enable` 등이 `scope upgrade pending approval` 또는 `pairing required: device is asking for more scopes` | **CLI scope 부족** — 위 [§ CLI scope upgrade pending](#트러블슈팅--cli-scope-upgrade-pending-approval-닭과-달걀-deadlock-의-정답-우회-저자-실측-2026-05-28) 의 4단계(명령 재호출→requestId 확보→`devices approve`→재시도). Control UI 닭과 달걀 deadlock 의 정답 우회 |
 | 브라우저형 스킬(webmail-watch·society-watch) cron 이 게이트웨이서 실패 | 게이트웨이 이미지에 playwright/chromium **없음** — 게이트웨이 cron 대상 아님. **사이드카로 분리**(위 9b 참조) |
 
 > 진단 팁: `OPENCLAW_DEBUG=1 OPENCLAW_CLI_BACKEND_LOG_OUTPUT=1` 를 environment 에 넣어 재생성하면 백엔드 stdout/stderr·`cli argv` 가 로그에 보임.
