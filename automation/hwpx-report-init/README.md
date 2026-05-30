@@ -44,7 +44,44 @@ chmod +x ~/projects/2nd-brain/automation/hwpx-report-init/init.py
 init.py fillable.hwpx                       # → fillable.template.md
 init.py fillable.hwpx -o report.md
 init.py fillable.hwpx -o report.md --overwrite
+
+# 가이드 명시 (또는 자동 발견)
+init.py fillable.hwpx -o report.md --guide knowledge/.../양식.md
 ```
+
+## 형식 가이드 (Key 명세표)
+
+양식 동반 노트의 **Key 명세표** 가 *권위* — 각 키의 *형식 가이드* 가 YAML 주석으로 자동 포함됨. 명세표 행 형식:
+
+```markdown
+| 키 | 양식 필드 | 형식 가이드 |
+|---|---|---|
+| `{{사업명}}` | 사업명(가칭) | 자유 텍스트 (한 줄) |
+| `{{총사업비}}` | 총사업비 | `"XXX억원 (국비: YYY억원)"` 형식 필수 |
+| `{{성과목표}}` | [성과목표] | multi-line (`\|`): ㅇ 헤더 + - 하위 |
+```
+
+→ 생성된 template 의 YAML 주석:
+
+```yaml
+사업명: ""  # 자유 텍스트 (한 줄)
+총사업비: ""  # `"XXX억원 (국비: YYY억원)"` 형식 필수
+성과목표: ""  # multi-line (`|`): ㅇ 헤더 + - 하위
+```
+
+### 가이드 자동 발견 (vault 컨벤션)
+
+`--guide` 미지정 시 vault 경로 패턴으로 자동 추정:
+
+```
+sources/<...>/<양식폴더>/fillable.hwpx
+   → knowledge/<...>/<양식폴더>.md
+```
+
+예: `sources/03_resources/한국원자력의학원/신규과제기획보고서양식/2026_..._fillable.hwpx`
+→ `knowledge/03_resources/한국원자력의학원/신규과제기획보고서양식.md` 자동 발견
+
+자동 발견 실패 시 `--guide` 명시.
 
 ## 생성되는 markdown 형식
 

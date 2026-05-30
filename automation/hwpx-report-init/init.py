@@ -42,6 +42,28 @@ import zipfile
 from pathlib import Path
 
 
+# 가이드 markdown 의 표 행 형식: | `{{key}}` | 양식 필드 | 형식 가이드 |
+GUIDE_ROW = re.compile(r"^\|\s*`\{\{([^}]+)\}\}`\s*\|[^|]*\|\s*(.*?)\s*\|\s*$")
+
+
+def parse_guide_md(guide_path: Path) -> dict[str, str]:
+    """가이드 markdown 에서 키 → 형식 가이드 매핑 추출.
+
+    표 행 형식 (3 컬럼 이상): | `{{key}}` | 양식 필드 | 형식 가이드 |
+    """
+    if not guide_path.exists():
+        return {}
+    guide: dict[str, str] = {}
+    for line in guide_path.read_text(encoding="utf-8").splitlines():
+        m = GUIDE_ROW.match(line)
+        if m:
+            key = m.group(1)
+            hint = m.group(2).strip()
+            if hint:
+                guide[key] = hint
+    return guide
+
+
 def extract_placeholders_with_context(fillable_path: Path) -> list[dict]:
     """fillable.hwpx 의 모든 placeholder + 표 깊이·셀 컨텍스트 추출."""
     with zipfile.ZipFile(fillable_path) as zf:
@@ -90,8 +112,8 @@ def extract_placeholders_with_context(fillable_path: Path) -> list[dict]:
     return placeholders
 
 
-def generate_template(fillable_path: Path, placeholders: list[dict]) -> str:
-    """markdown template 생성."""
+def generate_template(fillable_path: Path, placeholders: list[dict], guide: dict[str, str]) -> str:
+    """markdown template 생성. guide 가 있으면 YAML 주석으로 포함."""
     name = fillable_path.stem
     n = len(placeholders)
 
@@ -99,11 +121,20 @@ def generate_template(fillable_path: Path, placeholders: list[dict]) -> str:
     outer = [p for p in placeholders if p["depth"] == 0]
     nested = [p for p in placeholders if p["depth"] >= 1]
 
+    def hint_comment(p: dict) -> str:
+        """우선순위: 형식 가이드 > 셀 라벨 > depth"""
+        if p["key"] in guide:
+            return f"  # {guide[p['key']]}"
+        if p["cell_label"]:
+            return f"  # [{p['cell_label']}]"
+        return f"  # depth={p['depth']}" if p["depth"] > 0 else ""
+
     lines = [
         "---",
         f"template_for: {name}",
         f"fillable: {fillable_path}",
         f"placeholders: {n}",
+        f"guide_keys: {len(guide)}",
         "status: empty",
         "---",
         "",
@@ -113,7 +144,8 @@ def generate_template(fillable_path: Path, placeholders: list[dict]) -> str:
         "> multi-line 값은 `|` literal block scalar 사용 — 들여쓰기·줄바꿈 보존.",
         "> 들여쓰기 규약: `ㅇ 헤더\\n  - 하위` (반각 2칸 hanging).",
         ">",
-        "> **방법**: 빈 `\"\"` 또는 `|` 블록을 채우기. 본문은 자유 (작업 노트·참고자료).",
+        "> **각 키의 형식 가이드는 YAML 주석 `#` 참조** (가이드 출처: 양식 동반 노트).",
+        "> 빈 `\"\"` 또는 `|` 블록을 채우기. 본문은 자유 (작업 노트·참고자료).",
         ">",
         "> 완성되면 `hwpx-report-fill <이 파일>` 으로 hwpx 산출물 생성.",
         "",
@@ -126,16 +158,14 @@ def generate_template(fillable_path: Path, placeholders: list[dict]) -> str:
     if outer:
         lines.append("# === Outer 셀 (메인 양식) ===")
         for p in outer:
-            label_hint = f"  # [{p['cell_label']}]" if p["cell_label"] else ""
-            lines.append(f'{p["key"]}: ""{label_hint}')
+            lines.append(f'{p["key"]}: ""{hint_comment(p)}')
 
     # nested
     if nested:
         lines.append("")
         lines.append("# === Nested 표 (소요예산·연구개발 목표·연구 성과 등) ===")
         for p in nested:
-            label_hint = f"  # depth={p['depth']}, cell=[{p['cell_label']}]" if p["cell_label"] else f"  # depth={p['depth']}"
-            lines.append(f'{p["key"]}: ""{label_hint}')
+            lines.append(f'{p["key"]}: ""{hint_comment(p)}')
 
     lines.extend(
         [
@@ -157,6 +187,7 @@ def main() -> int:
     )
     parser.add_argument("fillable", type=Path, help="Input fillable.hwpx")
     parser.add_argument("-o", "--output", type=Path, help="Output markdown (default: <fillable>.template.md)")
+    parser.add_argument("--guide", type=Path, help="Guide markdown with Key 명세표 (형식 가이드 컬럼). Auto-discovered from vault if omitted.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing output")
     args = parser.parse_args()
 
@@ -169,14 +200,30 @@ def main() -> int:
         print(f"error: output exists (use --overwrite): {output}", file=sys.stderr)
         return 2
 
+    # 가이드 자동 발견: vault 의 sources/<...>/<양식>/fillable.hwpx → knowledge/<...>/<양식>.md
+    guide_path = args.guide
+    if guide_path is None:
+        # sources → knowledge 매핑 + 폴더 이름과 일치하는 md 추정
+        fp_str = str(args.fillable.resolve())
+        if "/sources/" in fp_str:
+            cand = Path(fp_str.replace("/sources/", "/knowledge/", 1)).parent.with_suffix(".md")
+            if cand.exists():
+                guide_path = cand
+
+    guide = parse_guide_md(guide_path) if guide_path else {}
     placeholders = extract_placeholders_with_context(args.fillable)
-    template = generate_template(args.fillable, placeholders)
+    template = generate_template(args.fillable, placeholders, guide)
     output.write_text(template, encoding="utf-8")
 
     outer = sum(1 for p in placeholders if p["depth"] == 0)
     nested = sum(1 for p in placeholders if p["depth"] >= 1)
+    matched = sum(1 for p in placeholders if p["key"] in guide)
     print(f"Generated: {output}", file=sys.stderr)
     print(f"  placeholders: {len(placeholders)} (outer {outer}, nested {nested})", file=sys.stderr)
+    if guide_path:
+        print(f"  guide: {guide_path}  ({matched}/{len(placeholders)} keys matched, {len(guide)} guide entries total)", file=sys.stderr)
+    else:
+        print(f"  guide: (none — no --guide and vault auto-discovery failed)", file=sys.stderr)
     print(output)
     return 0
 
