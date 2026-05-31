@@ -25,12 +25,24 @@ r"""hwpx-report-fill — markdown template → hwpx 산출물 (정방향 마무�
 
 사용 예
 --------
-  fill.py template.md -o output.hwpx
-  fill.py template.md -o output.hwpx --fillable override.hwpx
-  fill.py template.md --in-place-md             # output 미지정 시 <md>.hwpx
+  fill.py <stem>_fillable.md
+    → default 자동 명명: sources/.../<today>_<stem>_filled.hwpx
+    → vault companion 패턴 (knowledge/ ↔ sources/) 자동 매핑
+
+  fill.py <stem>_fillable.md -o /path/to/custom.hwpx
+    → 명시적 위치·이름
+
+  fill.py <stem>_fillable.md --fillable override.hwpx
+    → 양식 override
+
+명명 규약 (2026-05-31~)
+------------------------
+입력 markdown 은 ``<stem>_fillable.md`` (작업 표면).
+산출 hwpx 는 ``<YYYY-MM-DD>_<stem>_filled.hwpx`` — 상태 동사 짝 (fillable → filled).
 """
 from __future__ import annotations
 import argparse
+import datetime
 import json
 import re
 import subprocess
@@ -44,6 +56,7 @@ import yaml
 ROOT = Path.home() / "projects/2nd-brain/automation"
 FILL_TOOL = ROOT / "hwpx-fill/fill.py"
 FIXER_TOOL = ROOT / "hwpx-multiline-fixer/fixer.py"
+STRIPPER_TOOL = ROOT / "hwpx-linesegarray-stripper/stripper.py"
 
 
 def extract_from_markdown(md_path: Path) -> tuple[dict, Path | None]:
@@ -81,9 +94,10 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("markdown", type=Path, help="Input markdown template")
-    parser.add_argument("-o", "--output", type=Path, help="Output hwpx (default: <markdown>.hwpx)")
+    parser.add_argument("-o", "--output", type=Path, help="Output hwpx (default: <today>_<base>_filled.hwpx in sources/.../, where base = markdown stem with _fillable trimmed)")
     parser.add_argument("--fillable", type=Path, help="Override fillable.hwpx path (default: from frontmatter)")
     parser.add_argument("--skip-fixer", action="store_true", help="Skip multiline-fixer step (literal \\n 그대로)")
+    parser.add_argument("--skip-stripper", action="store_true", help="Skip linesegarray-stripper step (layout 캐시 유지)")
     args = parser.parse_args()
 
     if not args.markdown.exists():
@@ -94,6 +108,9 @@ def main() -> int:
         return 3
     if not FIXER_TOOL.exists():
         print(f"error: hwpx-multiline-fixer not found: {FIXER_TOOL}", file=sys.stderr)
+        return 3
+    if not STRIPPER_TOOL.exists():
+        print(f"error: hwpx-linesegarray-stripper not found: {STRIPPER_TOOL}", file=sys.stderr)
         return 3
 
     try:
@@ -110,7 +127,22 @@ def main() -> int:
         print(f"error: fillable not found: {fillable}", file=sys.stderr)
         return 6
 
-    output = args.output or args.markdown.with_suffix(".hwpx")
+    # default 출력: <today>_<base>_filled.hwpx, knowledge/ → sources/ 자동 변환
+    if args.output:
+        output = args.output
+    else:
+        stem = args.markdown.stem
+        base = stem[:-len("_fillable")] if stem.endswith("_fillable") else stem
+        today = datetime.date.today().isoformat()
+        fname = f"{today}_{base}_filled.hwpx"
+        # knowledge/.../ → sources/.../ 자동 매핑 (vault companion 패턴)
+        md_parts = args.markdown.resolve().parts
+        if "knowledge" in md_parts:
+            src_parts = tuple("sources" if p == "knowledge" else p for p in md_parts)
+            output = Path(*src_parts).parent / fname
+            output.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            output = args.markdown.parent / fname
 
     # 1. hwpx-fill — JSON 임시 파일 경유
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
@@ -118,24 +150,38 @@ def main() -> int:
         json_path = Path(f.name)
 
     try:
+        # 1. hwpx-fill (필수)
+        tmp_filled = output.with_suffix(".filled.hwpx")
+        subprocess.run(
+            ["python3", str(FILL_TOOL), str(fillable), "--map", str(json_path), "-o", str(tmp_filled)],
+            check=True,
+        )
+
+        # 2. hwpx-multiline-fixer (선택)
         if args.skip_fixer:
-            subprocess.run(
-                ["python3", str(FILL_TOOL), str(fillable), "--map", str(json_path), "-o", str(output)],
-                check=True,
-            )
-            print(f"  → fill only: {output}", file=sys.stderr)
+            tmp_fixed = tmp_filled
         else:
-            tmp_filled = output.with_suffix(".filled.hwpx")
+            tmp_fixed = output.with_suffix(".fixed.hwpx")
             subprocess.run(
-                ["python3", str(FILL_TOOL), str(fillable), "--map", str(json_path), "-o", str(tmp_filled)],
-                check=True,
-            )
-            subprocess.run(
-                ["python3", str(FIXER_TOOL), str(tmp_filled), "-o", str(output)],
+                ["python3", str(FIXER_TOOL), str(tmp_filled), "-o", str(tmp_fixed)],
                 check=True,
             )
             tmp_filled.unlink()
-            print(f"  → fill + fixer: {output}", file=sys.stderr)
+
+        # 3. hwpx-linesegarray-stripper (선택, 한컴 layout 재계산)
+        if args.skip_stripper:
+            tmp_fixed.rename(output)
+            stages = "fill" if args.skip_fixer else "fill + fixer"
+        else:
+            subprocess.run(
+                ["python3", str(STRIPPER_TOOL), str(tmp_fixed), "-o", str(output)],
+                check=True,
+            )
+            tmp_fixed.unlink()
+            stages = "fill" if args.skip_fixer else "fill + fixer"
+            stages += " + stripper"
+
+        print(f"  → {stages}: {output}", file=sys.stderr)
     finally:
         json_path.unlink()
 

@@ -30,9 +30,22 @@ markdown template 형식
 사용 예
 --------
   init.py fillable.hwpx
-    → fillable.template.md 생성
+    → <fillable-stem>_fillable.md 생성 (이미 _fillable 로 끝나면 중복 안 함)
 
-  init.py fillable.hwpx -o knowledge/01_projects/<proj>/<과제명>.md
+  init.py fillable.hwpx -o knowledge/01_projects/<proj>/<과제명>_fillable.md
+    → 권장: <과제명>_fillable.md 명명 (vault 내 fillable 입력임을 표시)
+
+명명 규약 (2026-05-31 v2 — 출처 추적형)
+----------------------------------------
+fillable 입력 markdown 은 **`<참조-기획보고서-stem>_fillable.md`** suffix 사용:
+- 참조 기획보고서의 파일명을 *그대로 prefix* 로 박아 provenance 추적
+- 예: 참조 `7B-VLM-의료영상품질·환자선량-최적화플랫폼.md`
+      → fillable `7B-VLM-의료영상품질·환자선량-최적화플랫폼_fillable.md`
+- `_fillable.hwpx` (양식) 와 짝 — 같은 형용사
+- 프로젝트 폴더 내 다른 .md (기획·조사·MOC) 와 grep/시각 식별
+- 기획보고서 rename 시 fillable 도 함께 갱신 필요
+
+산출 hwpx: `<날짜>_<출처>_<과제명>_<양식종류>.hwpx` (vault 이벤트 명명, sources/ 아래).
 """
 from __future__ import annotations
 import argparse
@@ -186,7 +199,7 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("fillable", type=Path, help="Input fillable.hwpx")
-    parser.add_argument("-o", "--output", type=Path, help="Output markdown (default: <fillable>.template.md)")
+    parser.add_argument("-o", "--output", type=Path, help="Output markdown (default: <fillable-stem>_fillable.md). 권장: -o <task>_fillable.md (예: 7B-VLM-요약본_fillable.md) — 작업 표면임을 폴더 내 다른 .md 와 grep/시각 식별")
     parser.add_argument("--guide", type=Path, help="Guide markdown with Key 명세표 (형식 가이드 컬럼). Auto-discovered from vault if omitted.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing output")
     args = parser.parse_args()
@@ -195,7 +208,14 @@ def main() -> int:
         print(f"error: fillable not found: {args.fillable}", file=sys.stderr)
         return 1
 
-    output = args.output or args.fillable.with_suffix(".template.md")
+    # default: <fillable-stem>_fillable.md (예: form_fillable.hwpx → form_fillable_fillable.md 는 어색해 .stem 에서 _fillable 트림)
+    if args.output:
+        output = args.output
+    else:
+        stem = args.fillable.stem
+        if stem.endswith("_fillable"):
+            stem = stem[: -len("_fillable")]
+        output = args.fillable.with_name(f"{stem}_fillable.md")
     if output.exists() and not args.overwrite:
         print(f"error: output exists (use --overwrite): {output}", file=sys.stderr)
         return 2
