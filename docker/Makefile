@@ -1,7 +1,8 @@
 .PHONY: clean \
         up-parser down-parser shell-parser run-parser \
         up-openclaw down-openclaw restart-openclaw logs-openclaw shell-openclaw \
-        install-parser-drain
+        install-parser-drain \
+        install-webmail-sidecar
 
 UID := $(shell id -u)
 GID := $(shell id -g)
@@ -76,4 +77,20 @@ install-parser-drain:
 	systemctl --user daemon-reload
 	@echo
 	@echo "활성화: systemctl --user enable --now parser-drain.timer"
+	@echo "부팅영속(1회 sudo): sudo loginctl enable-linger $$USER"
+
+# ── webmail-sidecar (host systemd 브라우저형 스킬 폴 — headed-under-Xvfb) ──────
+# 게이트웨이엔 브라우저가 없어 별도 사이드카(Playwright+Xvfb)를 host 타이머가 1회성
+# `docker compose run --rm` 으로 주기 호출. 유닛은 %h specifier 라 PC 비종속.
+# 전제(미동기 로컬): 이미지 빌드(docker compose build) + KIRAMS secret
+# (~/.openclaw/secrets/webmail-watch-kirams.toml, Bitwarden 정본). 상세: README.md, docs §9b.
+install-webmail-sidecar:
+	install -d $(HOME)/.config/systemd/user
+	install -m 0644 webmail-sidecar/systemd/openclaw-webmail-sidecar.service $(HOME)/.config/systemd/user/
+	install -m 0644 webmail-sidecar/systemd/openclaw-webmail-sidecar.timer   $(HOME)/.config/systemd/user/
+	systemctl --user daemon-reload
+	@echo
+	@echo "전제: docker compose -f webmail-sidecar/compose.yml build (이미지 ~1GB)"
+	@echo "전제: ~/.openclaw/secrets/webmail-watch-kirams.toml (Bitwarden, mode 600)"
+	@echo "활성화는 /cron on 으로 (이중발화 가드+Sheet 마커). 수동: systemctl --user enable --now openclaw-webmail-sidecar.timer"
 	@echo "부팅영속(1회 sudo): sudo loginctl enable-linger $$USER"

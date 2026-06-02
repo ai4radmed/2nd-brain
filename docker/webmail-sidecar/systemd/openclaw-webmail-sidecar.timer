@@ -1,0 +1,9 @@
+[Unit]
+Description=OpenClaw webmail-watch sidecar schedule (weekdays hourly 08-18, mirrors native cron 0 8-18 * * 1-5)
+
+[Timer]
+OnCalendar=Mon-Fri 08..18:00:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

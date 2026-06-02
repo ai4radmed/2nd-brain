@@ -1,0 +1,10 @@
+[Unit]
+Description=OpenClaw webmail-watch browser sidecar (one-shot poll)
+Documentation=https://github.com/ai4radmed/2nd-brain/tree/main/docker/webmail-sidecar
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/2nd-brain/docker/webmail-sidecar
+ExecStart=/usr/bin/docker compose -f compose.yml run --rm webmail-sidecar
+TimeoutStartSec=600
