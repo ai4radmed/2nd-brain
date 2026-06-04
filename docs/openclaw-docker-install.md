@@ -48,9 +48,11 @@ export OPENCLAW_EXTRA_MOUNTS="$HOME/.openclaw/.claude:/home/node/.claude"
    - *Provider* → **Anthropic OAuth (claude-cli)**
    - 나머지는 skip 하고 나중에 설정 진행
 
-## 5. PATH fix — 번들 claude 를 PATH 에 노출 (★필수)
-- 설정이 완료된 후 컨테이너 내부에서 Claude code를 PATH에 등록
-- setup.sh 가 만든 `docker-compose.extra.yml` 을 PATH 포함본으로 덮어씀:
+## 5. 번들 claude 노출 — PATH + CLAUDE_CONFIG_DIR (★필수)
+- 설정 완료 후 컨테이너 내부에서 Claude Code 를 **두 가지**로 노출:
+  - **PATH** — 번들 claude 디렉토리 등록.
+  - **`CLAUDE_CONFIG_DIR=/home/node/.claude`** — *반드시 함께*. 없으면 claude 가 config(`.claude.json`)를 기본 경로(`$HOME/.claude.json`, 마운트 밖·ephemeral)에서 찾다 실패 → fresh 컨테이너마다 degraded → **`claude-cli` 에이전트 하니스 등록 실패**(`MissingAgentHarnessError: claude-cli is not registered`) → **텔레그램 등 채널 메시지 무응답**. (마운트는 `/home/node/.claude`, 진짜 config·credentials 가 거기 있는데 env 가 없으면 claude 가 안 봄. auth=`.credentials.json` 은 별개로 멀쩡 → **재로그인은 해결책 아님**. `doctor` 도 못 잡음 — 2026-06-04 실측 진단.)
+- setup.sh 가 만든 `docker-compose.extra.yml` 을 PATH+CLAUDE_CONFIG_DIR 포함본으로 덮어씀:
 
 ```bash
 cat > ~/projects/openclaw-docker/docker-compose.extra.yml <<EOF
@@ -61,11 +63,13 @@ services:
       - $HOME/.openclaw/.claude:/home/node/.claude
     environment:
       - PATH=/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - CLAUDE_CONFIG_DIR=/home/node/.claude
   openclaw-cli:
     volumes:
       - $HOME/.openclaw/.claude:/home/node/.claude
     environment:
       - PATH=/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - CLAUDE_CONFIG_DIR=/home/node/.claude
 EOF
 ```
 
@@ -78,7 +82,9 @@ docker compose -f docker-compose.yml -f docker-compose.extra.yml up -d --force-r
 
 ```bash
 GW=$(docker ps --filter name=openclaw-gateway --format '{{.Names}}' | head -1)
-docker exec "$GW" claude --version   # 2.1.x (Claude Code) 면 OK
+docker exec "$GW" sh -c 'echo $CLAUDE_CONFIG_DIR'   # /home/node/.claude 여야 함
+docker exec "$GW" claude --version                  # 2.1.x (Claude Code)
+docker exec "$GW" claude -p "Reply OK"              # "OK" 만 — "configuration file not found" 경고 뜨면 CLAUDE_CONFIG_DIR 미적용 (하니스 등록 실패함)
 ```
 
 ## 6. 텔레그램 봇 추가 (초기 설정에서 함께)
@@ -117,7 +123,7 @@ docker compose -f docker-compose.yml -f docker-compose.extra.yml down           
 docker compose -f docker-compose.yml -f docker-compose.extra.yml up -d openclaw-gateway       # 재기동
 ```
 
-> ⚠️ **모든 `docker compose` 명령에 `-f docker-compose.yml -f docker-compose.extra.yml` 를 항상 함께** 줄 것 (extra.yml = PATH fix + .claude 마운트). 빠지면 기본값으로 recreate 되며 깨짐.
+> ⚠️ **모든 `docker compose` 명령에 `-f docker-compose.yml -f docker-compose.extra.yml` 를 항상 함께** 줄 것 (extra.yml = PATH + **CLAUDE_CONFIG_DIR** + .claude 마운트). 빠지면 기본값으로 recreate 되며 깨짐(증상: 채널 메시지 무응답 + `MissingAgentHarnessError`).
 
 ---
 
