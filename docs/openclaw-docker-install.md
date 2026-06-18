@@ -1,17 +1,20 @@
 # OpenClaw Docker 설치
-- **Why?**: 호스트에 직접 설치하면 user 권한 그대로라 탈취 시 피해가 크지만, 컨테이너는 피해가 boundary 로 제한됨.   
+- **Why?**: 호스트에 직접 설치하면 user 권한 그대로라 탈취 시 피해가 크지만, 컨테이너는 피해가 boundary 로 제한됨.
 - OpenClaw에서 제공하는 docker 설치 (<https://docs.openclaw.ai/install/docker>)와는 달리 저자는 Claude Code CLI를 OAuth로 설치하기 위해서 아래와 같이 변경하여 진행함
+
+> **2026-06-18 개정 — 마운트 방식.** 신버전 이미지엔 **Claude Code CLI 가 미번들**(GitHub #66874 실측)이라, 옛 "2026.5.20 핀(번들 claude)" 방식을 폐기하고 **claude 바이너리를 `~/.openclaw/bin/` 에 마운트**하는 방식으로 전환했다. **기존 설치 → 신버전 업그레이드** 절차·검증·롤백은 [openclaw-upgrade-checklist.md](./openclaw-upgrade-checklist.md).
 
 ## 1. 저장소 클론
 ```bash
-git clone --branch v2026.5.20 https://github.com/openclaw/openclaw.git ~/projects/openclaw-docker
-```
-- 2026.05.27 기준 최신 이미지에 Claude Code CLI가 없어 2026.05.20 버전으로 고정함   
-- `setup.sh`·`docker-compose.yml`와 이미지(`OPENCLAW_IMAGE`)는 **같은 버전이어야**  함.
-
-```bash
+git clone https://github.com/openclaw/openclaw.git ~/projects/openclaw-docker
 cd ~/projects/openclaw-docker
 ```
+- ⚠️ **신버전 이미지엔 Claude Code CLI 가 미번들** → claude 바이너리를 §5 에서 **마운트**한다 (옛 "번들 claude 핀" 방식은 폐기).
+- **클론은 쓸 이미지와 같은 revision 으로** 맞춘다(dual-pin). 이미지를 받은 뒤(§4) source commit 으로 checkout:
+  ```bash
+  REV=$(docker image inspect ghcr.io/openclaw/openclaw:2026.6.8 --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+  git checkout "$REV"   # 예: 844f405a (= origin/release/2026.6.8). v<버전> 태그 ≠ release 브랜치 HEAD 가능 → *이미지 revision* 기준.
+  ```
 
 ## 2. 컨테이너 데이터 폴더 준비
 
@@ -32,10 +35,10 @@ CLAUDE_CONFIG_DIR="$HOME/.openclaw/.claude" claude auth login
 
 
 ## 4. 환경변수 export + 셋업 실행
-- 사용할 OpenClaw 이미지를 #1에서 지정한 것과 같도록 선언   
+- 사용할 OpenClaw 이미지 선언 (신버전 — claude 미번들이라 §5 에서 마운트)
 - 컨테이너 내부에서 Claude Code를 인식할 수 있도록 환경변수 선언
 ```bash
-export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:2026.5.20"
+export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:2026.6.8"
 export OPENCLAW_EXTRA_MOUNTS="$HOME/.openclaw/.claude:/home/node/.claude"
 ```
 
@@ -48,11 +51,21 @@ export OPENCLAW_EXTRA_MOUNTS="$HOME/.openclaw/.claude:/home/node/.claude"
    - *Provider* → **Anthropic OAuth (claude-cli)**
    - 나머지는 skip 하고 나중에 설정 진행
 
-## 5. 번들 claude 노출 — PATH + CLAUDE_CONFIG_DIR (★필수)
-- 설정 완료 후 컨테이너 내부에서 Claude Code 를 **두 가지**로 노출:
-  - **PATH** — 번들 claude 디렉토리 등록.
-  - **`CLAUDE_CONFIG_DIR=/home/node/.claude`** — *반드시 함께*. 없으면 claude 가 config(`.claude.json`)를 기본 경로(`$HOME/.claude.json`, 마운트 밖·ephemeral)에서 찾다 실패 → fresh 컨테이너마다 degraded → **`claude-cli` 에이전트 하니스 등록 실패**(`MissingAgentHarnessError: claude-cli is not registered`) → **텔레그램 등 채널 메시지 무응답**. (마운트는 `/home/node/.claude`, 진짜 config·credentials 가 거기 있는데 env 가 없으면 claude 가 안 봄. auth=`.credentials.json` 은 별개로 멀쩡 → **재로그인은 해결책 아님**. `doctor` 도 못 잡음 — 2026-06-04 실측 진단.)
-- setup.sh 가 만든 `docker-compose.extra.yml` 을 PATH+CLAUDE_CONFIG_DIR 포함본으로 덮어씀:
+## 5. claude 바이너리 마운트 + CLAUDE_CONFIG_DIR (+ 스키마 마이그레이션) (★필수)
+
+신버전 이미지엔 claude 가 없으므로 **claude 바이너리를 `~/.openclaw/bin/claude` 에 두어 마운트**한다 — 이 디렉토리는 컨테이너 `/home/node/.openclaw/bin` 으로 마운트되고 **PATH 맨앞**이라 자동 인식된다. 호스트에 설치된 Claude Code(self-contained ELF 233MB)를 복사하면 된다:
+
+```bash
+mkdir -p ~/.openclaw/bin
+cp "$(readlink -f "$(command -v claude)")" ~/.openclaw/bin/claude && chmod +x ~/.openclaw/bin/claude
+# 호환 확인(throwaway): "2.1.x (Claude Code)" 나오면 OK (glibc 호환)
+docker run --rm -v ~/.openclaw/bin:/b ghcr.io/openclaw/openclaw:2026.6.8 /b/claude --version
+```
+
+- **`CLAUDE_CONFIG_DIR=/home/node/.claude`(필수)**: 없으면 claude 가 config(`.claude.json`)를 기본 경로(`$HOME/.claude.json`, 마운트 밖·ephemeral)에서 찾다 실패 → fresh 컨테이너마다 degraded → **`claude-cli` 에이전트 하니스 등록 실패**(`MissingAgentHarnessError`) → **텔레그램 등 채널 메시지 무응답**. (auth=`.credentials.json` 은 별개로 멀쩡 → **재로그인은 해결책 아님**. `doctor` 도 못 잡음.)
+- **컨테이너 claude 갱신**: 새 버전으로 올리려면 위 `cp` 를 다시 하고 `docker restart`. 무인 게이트웨이라 **고정(수동 재핀) 권장** — 호스트 claude 로 *심링크*(자동업뎃)하면 surprise 업뎃 위험.
+
+setup.sh 가 만든 `docker-compose.extra.yml` 을 마운트 + PATH(bin 맨앞) + CLAUDE_CONFIG_DIR 포함본으로 덮어씀:
 
 ```bash
 cat > ~/projects/openclaw-docker/docker-compose.extra.yml <<EOF
@@ -62,16 +75,27 @@ services:
     volumes:
       - $HOME/.openclaw/.claude:/home/node/.claude
     environment:
-      - PATH=/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - PATH=/home/node/.openclaw/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - CLAUDE_CONFIG_DIR=/home/node/.claude
   openclaw-cli:
     volumes:
       - $HOME/.openclaw/.claude:/home/node/.claude
     environment:
-      - PATH=/app/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - PATH=/home/node/.openclaw/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - CLAUDE_CONFIG_DIR=/home/node/.claude
 EOF
 ```
+
+> gog 도 쓰면 [openclaw-docker-add-gog.md](./openclaw-docker-add-gog.md) 의 extra.yml 이 여기에 `gogcli` 마운트 + `GOG_KEYRING_PASSWORD` 를 더한 *상위집합*이다 (PATH 의 `~/.openclaw/bin` 맨앞은 그대로).
+
+**스키마 마이그레이션 (기존 config 를 신 이미지로 올릴 때)** — `agents.defaults: Invalid input` 으로 boot 실패하면, **게이트웨이 down 상태에서** doctor 로 정규화:
+
+```bash
+docker run --rm -v $HOME/.openclaw:/home/node/.openclaw -v $HOME/.openclaw/.claude:/home/node/.claude \
+  -e HOME=/home/node -e CLAUDE_CONFIG_DIR=/home/node/.claude \
+  ghcr.io/openclaw/openclaw:2026.6.8 node /app/dist/index.js doctor --fix
+```
+→ 최상위 `agents.defaults.agentRuntime` 제거(이게 옛 `MissingAgentHarnessError` lane 버그의 원인) + `maxConcurrent`/`subagents`/모델목록 정규화(.bak 백업). 신규 설치(빈 config)면 보통 불필요.
 
 재생성 + 확인:
 
@@ -83,7 +107,7 @@ docker compose -f docker-compose.yml -f docker-compose.extra.yml up -d --force-r
 ```bash
 GW=$(docker ps --filter name=openclaw-gateway --format '{{.Names}}' | head -1)
 docker exec "$GW" sh -c 'echo $CLAUDE_CONFIG_DIR'   # /home/node/.claude 여야 함
-docker exec "$GW" claude --version                  # 2.1.x (Claude Code)
+docker exec "$GW" claude --version                  # 2.1.x (Claude Code) — 마운트된 것
 docker exec "$GW" claude -p "Reply OK"              # "OK" 만 — "configuration file not found" 경고 뜨면 CLAUDE_CONFIG_DIR 미적용 (하니스 등록 실패함)
 ```
 
@@ -123,11 +147,13 @@ docker compose -f docker-compose.yml -f docker-compose.extra.yml down           
 docker compose -f docker-compose.yml -f docker-compose.extra.yml up -d openclaw-gateway       # 재기동
 ```
 
-> ⚠️ **모든 `docker compose` 명령에 `-f docker-compose.yml -f docker-compose.extra.yml` 를 항상 함께** 줄 것 (extra.yml = PATH + **CLAUDE_CONFIG_DIR** + .claude 마운트). 빠지면 기본값으로 recreate 되며 깨짐(증상: 채널 메시지 무응답 + `MissingAgentHarnessError`).
+> ⚠️ **모든 `docker compose` 명령에 `-f docker-compose.yml -f docker-compose.extra.yml` 를 항상 함께** 줄 것 (extra.yml = PATH(bin 맨앞) + **CLAUDE_CONFIG_DIR** + .claude 마운트). 빠지면 기본값으로 recreate 되며 깨짐(증상: 채널 메시지 무응답 + `MissingAgentHarnessError`).
 
 ---
 
 ## 초기 설정 시 반드시 검토 (모델·하트비트·thinking)
+
+> ⚠️ 2026.6.8+ 는 config 스키마가 바뀌었다(§5 의 `doctor --fix` 가 자동 정규화 — 최상위 `agentRuntime` 제거 등). 아래 python 패치는 여전히 유효하나, 적용 후 게이트웨이가 안 뜨면 `doctor --fix` 로 정규화할 것.
 
 설치 직후 *반드시* 한 번 결정해야 응답이 느리거나 멈추지 않습니다 (저자 실측: 단순 gog 작업 sonnet 18~34초 → **haiku 6.5초**. 측정 근거는 [openclaw-skills.md](./openclaw-skills.md) "왜 느린가").
 
@@ -157,4 +183,5 @@ PY
 - 최초 구동 시 쓸 수 있는 기본 스킬·능력·속도: [openclaw-skills.md](./openclaw-skills.md)
 - (선택) gog 로 Google Workspace(Gmail·Calendar·Tasks) 연계: [openclaw-docker-add-gog.md](./openclaw-docker-add-gog.md)
 - 운영 심화 — Control UI(로컬 대시보드)·무인 자동화(cron·사이드카)·신뢰성(stall 자동복구)·트러블슈팅: [openclaw-docker-operations.md](./openclaw-docker-operations.md)
+- **버전 업그레이드**(기존 설치 → 신버전): [openclaw-upgrade-checklist.md](./openclaw-upgrade-checklist.md)
 - 공식 문서: <https://docs.openclaw.ai/install/docker>

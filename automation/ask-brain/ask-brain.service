@@ -1,0 +1,11 @@
+[Unit]
+Description=2nd-brain ask-brain — 텔레그램 질문을 vault 검색·추론(claude -p, read-only)으로 회신 (host)
+After=docker.service
+# 요청-구동: ask-brain.path 가 큐에 job 이 생기면 이 oneshot 을 발화. brain-drain 의 형제이나 타이머가 아니라 path 트리거.
+
+[Service]
+Type=oneshot
+ExecStart=%h/projects/2nd-brain/automation/ask-brain/ask-brain.sh
+# ── 회신 대상 기본값(단일 사용자 MVP) ── Dr. Ben 텔레그램 chat id 로 설정:
+#   systemctl --user edit ask-brain.service   →  [Service]\nEnvironment=ASK_BRAIN_TARGET=<chat_id>
+# (OpenClaw 트리거가 chat id 를 job 에 동봉하면 그 값이 우선, 없을 때만 이 기본값 사용)

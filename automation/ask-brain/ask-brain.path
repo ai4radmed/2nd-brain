@@ -1,0 +1,10 @@
+[Unit]
+Description=2nd-brain ask-brain 큐 워처 — job 파일이 생기면 러너 발화
+
+[Path]
+# 공유 마운트 안의 런타임 큐. 비어있지 않게 되면 ask-brain.service 발화 → 처리 후 done/ 으로 비워 재무장.
+DirectoryNotEmpty=%h/.openclaw/workspace/ask-brain-queue/jobs
+Unit=ask-brain.service
+
+[Install]
+WantedBy=default.target
