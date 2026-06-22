@@ -12,7 +12,7 @@
 
 services:
   2nd-brain-parser:
-    image: ghcr.io/benkorea/2nd-brain-parser:${PARSER_VERSION:-latest}
+    image: ${PARSER_IMAGE:-ghcr.io/benkorea/2nd-brain-parser@sha256:488a6620a10e237f2303463dea3769ed67562cb75040d1a73f68d9074f4521d5}
     container_name: 2nd-brain-parser
     user: "${UID:-1000}:${GID:-1000}"
     working_dir: /home/user/work

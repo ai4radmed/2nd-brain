@@ -14,6 +14,7 @@ export SB_DATA="${SB_DATA:-$HOME/projects/2nd-brain-vault}"   # compose 마운�
 REPO="${SECOND_BRAIN_REPO:-$HOME/projects/2nd-brain}"
 INBOX="$SB_DATA/sources/00_inbox"
 CMNT="/home/user/projects/2nd-brain-vault"                    # 컨테이너 내부 마운트 경로
+PARSER_CLI="${PARSER_CLI:-brain-pdf}"                         # 컨테이너 내 CLI 명(이미지 0.2.0~ brain-pdf, 구명 2nd-brain-parser)
 ENGINE_TIMEOUT="${ENGINE_TIMEOUT:-900}"                       # 엔진당 상한(초)
 LOG="${PARSER_DRAIN_LOG:-$HOME/.local/state/parser-drain.log}"
 mkdir -p "$(dirname "$LOG")"
@@ -35,7 +36,7 @@ trap '"${COMPOSE[@]}" down >>"$LOG" 2>&1 || true' EXIT
 run_to(){
   local out="$1"; shift
   local tmp="$out.tmp"
-  if timeout "$ENGINE_TIMEOUT" docker exec 2nd-brain-parser 2nd-brain-parser "$@" \
+  if timeout "$ENGINE_TIMEOUT" docker exec 2nd-brain-parser "$PARSER_CLI" "$@" \
         >"$tmp" 2>>"$LOG" && [ -s "$tmp" ]; then
     mv -f "$tmp" "$out"; return 0
   fi
