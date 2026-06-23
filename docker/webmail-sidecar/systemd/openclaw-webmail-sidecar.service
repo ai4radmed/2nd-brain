@@ -6,5 +6,6 @@ After=docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=%h/projects/2nd-brain/docker/webmail-sidecar
-ExecStart=/usr/bin/docker compose -f compose.yml run --rm webmail-sidecar
+# poll.sh 래퍼: 봇토큰 env 주입 + 반송(BOUNCE_HALT) 시 타이머 자동 정지(작동 멈춤).
+ExecStart=%h/projects/2nd-brain/docker/webmail-sidecar/poll.sh
 TimeoutStartSec=600
