@@ -13,7 +13,7 @@ import argparse
 import json
 import sys
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 EX_NOT_IMPLEMENTED = 78  # sysexits.h EX_CONFIG — configuration / not-yet-built
 
@@ -142,6 +142,71 @@ def parse_mineru(pdf_path: str) -> dict:
         # page with bboxes + types). Closest analog to docling's
         # export_to_dict(). content_list_v2.json is also available but flatter.
         "json_structure": middle,
+    }
+
+
+def parse_ocr(img_path: str) -> dict:
+    """Device-adaptive OCR for standalone images (png/jpg/jpeg/webp/tiff).
+
+    문서 포맷(docling/mineru 듀얼)과 달리 이미지는 단일 OCR 엔진만 돈다(diff 불가).
+    엔진 백엔드는 **머신별 env 주입**으로 device-adaptive — 동기 자산에 디바이스/엔진을
+    박지 않는다(어댑터 패턴):
+      PARSER_OCR_BACKEND : MinerU 백엔드. 기본 'pipeline'(CPU·classic, PaddleOCR 계열).
+                           GPU 머신은 'vlm-vllm'/'vlm-transformers'(VLM, 빠르고 표 강함)로 주입.
+      PARSER_OCR_LANG    : pipeline 백엔드 OCR 언어. 기본 'korean'.
+    산출은 parse_mineru 와 동형 dict(stdout JSON). 전략 §이미지 OCR 의 `_parse/ocr.md` 소스.
+    """
+    import json as _json
+    import os
+    import subprocess
+    import sys
+    import tempfile
+    import time
+    from pathlib import Path
+
+    img = Path(img_path)
+    if not img.is_file():
+        raise FileNotFoundError(img_path)
+
+    backend = os.environ.get("PARSER_OCR_BACKEND", "pipeline")
+    lang = os.environ.get("PARSER_OCR_LANG", "korean")
+
+    t0 = time.perf_counter()
+    with tempfile.TemporaryDirectory(prefix="ocr-") as out_dir:
+        cmd = ["mineru", "-p", str(img), "-o", out_dir, "-b", backend]
+        # -l (언어)는 pipeline 백엔드 전용 옵션. vlm-* 백엔드엔 넘기지 않는다.
+        if backend == "pipeline":
+            cmd += ["-l", lang]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        # MinerU 진행/FastAPI 로그는 stdout/stderr 양쪽 → 전부 stderr 로 보내 stdout JSON 보존.
+        sys.stderr.write(proc.stdout)
+        sys.stderr.write(proc.stderr)
+        if proc.returncode != 0:
+            raise RuntimeError(f"mineru({backend}) exited {proc.returncode} for {img_path!r}")
+
+        stem = img.stem
+        # 백엔드별 출력 하위폴더가 다름(pipeline→auto/, vlm→vlm/) → rglob 로 견고하게 찾는다.
+        md_files = list(Path(out_dir).rglob(f"{stem}.md"))
+        if not md_files:
+            raise RuntimeError(f"mineru({backend}) produced no markdown for {img_path!r}")
+        markdown = md_files[0].read_text(encoding="utf-8")
+        # middle.json 은 pipeline 백엔드만 동일 스키마 → 있으면 페이지 수, 없으면 1(이미지=1장).
+        middle_files = list(Path(out_dir).rglob(f"{stem}_middle.json"))
+        if middle_files:
+            pages = len(_json.loads(middle_files[0].read_text(encoding="utf-8"))["pdf_info"])
+        else:
+            pages = 1
+        runtime_sec = time.perf_counter() - t0
+
+    return {
+        "engine": f"ocr:{backend}",
+        "pdf_path": str(img),
+        "via": f"image→mineru:{backend}",
+        "pages": pages,
+        "runtime_sec": round(runtime_sec, 3),
+        "markdown": markdown,
+        "doctags": None,
+        "json_structure": None,
     }
 
 
@@ -341,6 +406,12 @@ def main(argv: list[str] | None = None) -> int:
     p_mineru = sub.add_parser("parse-mineru", help="Parse PDF with MinerU")
     p_mineru.add_argument("pdf")
 
+    p_ocr = sub.add_parser(
+        "parse-ocr",
+        help="OCR a standalone image (device-adaptive backend via PARSER_OCR_BACKEND env)",
+    )
+    p_ocr.add_argument("image")
+
     p_diff = sub.add_parser("diff", help="Compare two parser outputs")
     p_diff.add_argument("a", help="Docling JSON output path")
     p_diff.add_argument("b", help="MinerU JSON output path")
@@ -352,6 +423,8 @@ def main(argv: list[str] | None = None) -> int:
             result = parse_docling(args.pdf)
         elif args.cmd == "parse-mineru":
             result = parse_mineru(args.pdf)
+        elif args.cmd == "parse-ocr":
+            result = parse_ocr(args.image)
         elif args.cmd == "diff":
             result = diff_outputs(args.a, args.b)
         print(json.dumps(result, ensure_ascii=False, indent=2))
