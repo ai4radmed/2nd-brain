@@ -62,7 +62,7 @@
 - **비동기라 속도는 비차단.** OCR 은 extract 단계(parser-drain/brain-drain 타이머)에서 돌므로 CPU 머신의 느림이 대화형 UX 를 막지 않는다. 보통은 단일발화 머신에서 처리되고, GPU 머신이 발화 머신이면 자동으로 빠른 경로.
 - **산출·핸드오프**: 이미지 extract → `_parse/ocr.md`(단일 엔진, diff 불가 — office docling 단일과 동형). 이후 refine 가 `verdict=single` 로 자동승격(→`refined.md`), 한글 표 의심 시에만 spot-check. brainify 는 동일하게 `refined.md` 소비.
 - **호출**: `brain-pdf parse-ocr <이미지>` (CLI 콘솔명 = `brain-pdf`, setup 문서의 `2nd-brain-parser <cmd>` 표기는 outdated). 산출 dict 는 parse-mineru 동형(engine=`ocr:<backend>`).
-- **상태 (2026-06-24)**: ✅ **entrypoint.py 에 `parse-ocr` 구현·검증** — MinerU 가 이미지를 1페이지로 받음. 한글 전국포럼 일정표 PNG(831×1183)로 검증: CPU pipeline 28초, 발표자 표 정확 추출(비전 다운스케일로 막혔던 그 파일). 디바이스/엔진은 `PARSER_OCR_BACKEND` env(기본 `pipeline`=CPU, GPU 머신은 `vlm-vllm`/`vlm-transformers` 주입)로 어댑터. **잔여**: (1) ghcr 이미지 rebuild+push(현재 prebuilt 는 구버전 entrypoint — 임시로 수정 entrypoint.py bind-mount 로 사용 가능), (2) parser-drain 에 이미지 확장자→parse-ocr 배선(현재 capture-only), (3) GPU 머신 vlm 백엔드 env 셋업(선택, pipeline 으로도 충분).
+- **상태 (2026-06-24)**: ✅ **구현·배포 완료**. (1) `entrypoint.py` `parse-ocr`(v0.3.0) — MinerU 가 이미지를 1페이지로 받음, 디바이스/엔진은 `PARSER_OCR_BACKEND` env(기본 `pipeline`=CPU, GPU 머신은 `vlm-vllm`/`vlm-transformers`)로 어댑터. (2) ghcr 이미지 발행 — overlay 빌드(검증된 base + 신 entrypoint), `:latest`+`:2026.06.24` push, compose digest 핀 `sha256:96f1919b…` 로 갱신. (3) `parser-drain.sh` 이미지 루프 배선 — png/jpg/jpeg/webp/tiff → parse-ocr → `ocr.json`, `_parse/` 하위(mineru 추출 figure) 제외. 검증: 한글 전국포럼 일정표 PNG end-to-end 드레인 → `ocr:pipeline ocr.json`, 발표자 표 정확. **잔여(선택)**: 타 PC(노트북) `git pull` 로 신 digest 전파 · GPU 머신 vlm 백엔드 env 셋업(pipeline 으로도 충분).
 
 ## 관련
 
