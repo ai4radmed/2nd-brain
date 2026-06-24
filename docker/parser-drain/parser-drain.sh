@@ -3,6 +3,7 @@
 # sources/00_inbox 의 미파싱 바이너리를 2nd-brain-parser 컨테이너로 순차 파싱.
 #   PDF      → docling.json + mineru.json + diff.json (듀얼+diff, Phase 2)
 #   비-PDF   → docling.json (mineru=PDF 전용, diff 불가)
+#   이미지   → ocr.json (parse-ocr; device-adaptive 로컬 OCR, docling/mineru N/A)
 # 검증·노트화(diverge 시 LLM 결정 = Phase 3)는 brainify(별도).
 #
 # 트리거: parser-drain.timer (host systemd-user). 게이트웨이는 파일만 드롭.
@@ -82,4 +83,23 @@ for f in "$INBOX"/**/*.pdf "$INBOX"/**/*.hwp "$INBOX"/**/*.hwpx "$INBOX"/**/*.do
     log "ok(docling-only, mineru 없음): $f"; n=$((n+1))
   fi
 done
+
+# ── 이미지: parse-ocr 단일 → ocr.json (전략 §이미지 OCR — device-adaptive) ──
+# docling/mineru 대신 OCR. ⚠️ _parse/ 하위(mineru 가 추출한 figure 이미지)는 제외 —
+# 안 그러면 추출 figure 를 재-OCR 하는 무한 증식. 멱등: ocr.json 있으면 skip.
+for f in "$INBOX"/**/*.png "$INBOX"/**/*.jpg "$INBOX"/**/*.jpeg "$INBOX"/**/*.webp "$INBOX"/**/*.tiff; do
+  [[ "$f" == *_parse/* ]] && continue       # 파싱 산출물 내부 이미지 제외
+  out="${f}_parse"
+  ext="${f##*.}"; ext="${ext,,}"
+  cpath="${f/#$SB_DATA/$CMNT}"               # host→컨테이너 입력 경로
+  [ -s "$out/ocr.json" ] && continue         # 멱등
+  mkdir -p "$out"
+  log "parse(ocr:$ext): $f"
+  if run_to "$out/ocr.json" parse-ocr "$cpath"; then
+    log "ok(ocr): $f"; n=$((n+1))
+  else
+    log "FAIL ocr: $f"; : >"$out/.parse-error"
+  fi
+done
+
 log "drain done ($n processed)"
