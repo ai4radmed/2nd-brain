@@ -46,7 +46,27 @@ run_to(){
 
 shopt -s nullglob globstar
 n=0
-for f in "$INBOX"/**/*.pdf "$INBOX"/**/*.hwp "$INBOX"/**/*.hwpx "$INBOX"/**/*.docx "$INBOX"/**/*.xlsx; do
+
+# ── HWP/HWPX: 호스트-측 추출(컨테이너 우회) → refined.md 직접 생산 ──
+# 근거: 컨테이너 soffice+H2Orestart 경로는 headless user-프로필 미초기화로 실패 잦고
+#       hwpx 표를 버린다. 호스트엔 검증된 우월 경로(OWPML 직독 + soffice→docx→pandoc)가 있다.
+#       HWP 는 단일소스(mineru N/A·diff 불가)라 refine 이 no-op → 추출=refine 한 번에, refined.md 직접.
+#       brainify `_refined()` 가 이 refined.md 를 소비(컨테이너 안 탐). 멱등: refined.md 있으면 skip.
+HWP_REFINE="$REPO/docker/parser-drain/hwp_refine.py"
+for f in "$INBOX"/**/*.hwp "$INBOX"/**/*.hwpx; do
+  [[ "$f" == *_parse/* ]] && continue          # 파싱 산출물 내부 제외
+  out="${f}_parse"
+  [ -s "$out/refined.md" ] && continue           # 멱등
+  log "parse(hwp,host): $f"
+  if python3 "$HWP_REFINE" "$f" >>"$LOG" 2>&1; then
+    log "ok(hwp,host): $f"; n=$((n+1))
+  else
+    log "FAIL hwp(host): $f"                       # hwp_refine 이 .parse-error 마커 기록
+  fi
+done
+
+# ── PDF·docx·xlsx: 컨테이너(2nd-brain-parser) 경로 ──
+for f in "$INBOX"/**/*.pdf "$INBOX"/**/*.docx "$INBOX"/**/*.xlsx; do
   out="${f}_parse"
   ext="${f##*.}"; ext="${ext,,}"
   cpath="${f/#$SB_DATA/$CMNT}"          # host→컨테이너 입력 경로

@@ -34,13 +34,15 @@
 
 ## 포맷별 엔진 — 파서 vs 전략 경계
 
-- **포맷→변환은 파서 권위(전략 재구현 X)**: `parse-docling <파일>` 이 확장자 보고 자동 처리 — hwp/doc/rtf/odt→docx · ppt/odp→pptx · xls/ods→xlsx (LibreOffice 변환→docling), pdf·docx·pptx·xlsx 는 docling 직접. PDF 는 LibreOffice 경유 안 함(CJK 글리프 손상). 전략은 호출만.
+- **포맷→변환은 파서 권위(전략 재구현 X)**: `parse-docling <파일>` 이 확장자 보고 자동 처리 — doc/rtf/odt→docx · ppt/odp→pptx · xls/ods→xlsx (LibreOffice 변환→docling), pdf·docx·pptx·xlsx 는 docling 직접. PDF 는 LibreOffice 경유 안 함(CJK 글리프 손상). 전략은 호출만.
+- **⚠ hwp/hwpx 예외 — 컨테이너 우회, 호스트 추출(2026-07-03)**: 컨테이너의 hwp→docx→docling 경로는 headless soffice user-프로필 미초기화로 대량 실패(inbox 91건 `.parse-error`)했고 hwpx 표를 H2Orestart 가 버렸다. → **hwp/hwpx 는 호스트 `parser-drain/hwp_refine.py` 로 추출**(호스트 LibreOffice+H2Orestart(user 프로필)+pandoc 은 검증됨). hwpx=**OWPML XML 직독**(LibreOffice 완전 우회·무손실 표), hwp=soffice→docx→**pandoc gfm**(병합셀 clean HTML). HWP 는 단일소스(mineru N/A·diff 불가)라 refine 이 no-op → 추출=refine 을 한 번에 하고 `_parse/refined.md` 를 직접 생산(컨테이너·refine 둘 다 우회, brainify `_refined()` 가 소비). 라우팅=`parser-drain.sh`(hwp 전용 호스트 루프). 로직 원본=`radsafety-laws/scripts/_parse_attachments.py`. **잔여 예외**: 일부 구형 hwp 는 H2Orestart 가 "Unspecified Application Error" 로 거부 → 한컴 한글로 `.hwpx` 수동 변환 후 OWPML 경로(radsafety 와 동일한 문서화된 최소 예외).
 - **포맷→엔진정책은 전략 권위**: `mineru` 는 **PDF 전용**(`diff` 도 docling↔mineru 라 PDF 에서만 성립). 따라서 Phase 2 는 포맷 의존:
 
 | 포맷 | Phase 2 엔진 | Phase 3 |
 |---|---|---|
 | **PDF** | docling + mineru + diff (두 엔진 발산 의미있음) | diff 초과 페이지 Claude 검증 |
-| **office·hwp·odf·xlsx** | docling 단일 (mineru N/A·diff 불가) | 발산신호 없음 → 검증 옵션(표 spot-check) |
+| **office·odf·xlsx** (hwp 제외) | docling 단일 (mineru N/A·diff 불가) | 발산신호 없음 → 검증 옵션(표 spot-check) |
+| **hwp·hwpx** | **호스트 추출**(컨테이너 우회) — hwpx=OWPML 직독, hwp=soffice→pandoc → `_parse/refined.md` 직접 | 단일소스 → refine no-op(자동 완료). 구형 hwp 거부 시 한컴 hwpx 수동 |
 | **이미지 (png·jpg·jpeg·webp·tiff)** | 로컬 OCR 단일 — **device-adaptive**(GPU 머신=VLM / CPU 머신=classic, 아래 §) → `_parse/ocr.md` | 단일 출력(diff 불가) → verdict=single 자동승격; 한글 표 의심 시 spot-check |
 
 **핸드오프**: 동반 노트 frontmatter `parse:` 상태기계 — `(없음)→pending→parsed-pending-verify→<경로 확정>`. 각 단계는 앵커만 보고 재개(멱등, 중단·다기기 동기 안전).
