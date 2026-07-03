@@ -21,9 +21,9 @@ BRAINIFY_PY="${BRAINIFY_PY:-$HOME/.claude/skills/brainify/brainify.py}"
 CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
 MODEL="${BRAIN_DRAIN_MODEL:-claude-opus-4-7}"
 CLAUDE_TIMEOUT="${CLAUDE_TIMEOUT:-600}"          # claude 호출당 상한(초)
-CAP_REFINE="${CAP_REFINE:-0.50}"                 # diverge refine 항목당 $ 상한
-CAP_BRAINIFY="${CAP_BRAINIFY:-0.75}"             # brainify 항목당 $ 상한
-CAP_GLOBAL="${CAP_GLOBAL:-5.00}"                 # 드레인 1회 누적 $ 상한
+CAP_REFINE="${CAP_REFINE:-2.50}"                 # diverge refine 항목당 $ 상한 (2026-07-03: 0.50→1.50→2.50. 대용량 다페이지 한글PDF 비전검증이 $0.9 안팎+스파이크로 $1.5 초과 abort→재시도마다 ~$1.5 헛번. cap 올려 1회 완주가 더 쌈)
+CAP_BRAINIFY="${CAP_BRAINIFY:-1.50}"             # brainify 항목당 토큰-환산 상한 (2026-07-03: 0.75→1.50. refine 과 동일 — 큰 문서 brainify 가 $0.75 코앞이라 순간초과 abort→재시도-번. 값은 토큰×정가 환산, 실결제 아님)
+CAP_GLOBAL="${CAP_GLOBAL:-50.00}"                # 드레인 1회 누적 토큰-환산 상한 (2026-07-03: 5→50. MAX 요금제는 건당결제 아닌 사용량한도라 달러-스로틀 무의미 → 백필 가속. 한 런이 ~50건 소진 후 2분 뒤 재발화=거의 연속. 실결제 아님)
 LOG="${BRAIN_DRAIN_LOG:-$HOME/.local/state/brain-drain.log}"
 mkdir -p "$(dirname "$LOG")"
 log(){ echo "$(date -Is) $*" >>"$LOG"; }
