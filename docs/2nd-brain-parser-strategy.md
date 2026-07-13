@@ -44,6 +44,7 @@
 | **office·odf·xlsx** (hwp 제외) | docling 단일 (mineru N/A·diff 불가) | 발산신호 없음 → 검증 옵션(표 spot-check) |
 | **hwp·hwpx** | **호스트 추출**(컨테이너 우회) — hwpx=OWPML 직독, hwp=soffice→pandoc → `_parse/refined.md` 직접 | 단일소스 → refine no-op(자동 완료). 구형 hwp 거부 시 한컴 hwpx 수동 |
 | **이미지 (png·jpg·jpeg·webp·tiff)** | 로컬 OCR 단일 — **device-adaptive**(GPU 머신=VLM / CPU 머신=classic, 아래 §) → `_parse/ocr.md` | 단일 출력(diff 불가) → verdict=single 자동승격; 한글 표 의심 시 spot-check |
+| **오디오 (m4a·mp3·wav·ogg·opus·aac·amr)** | **호스트 전사**(faster-whisper 로컬 GPU, 아래 §) → `_parse/refined.md` 직접 | 단일소스 → refine no-op(HWP 동형). whisper venv 부재 머신은 루프째 skip |
 
 **핸드오프**: 동반 노트 frontmatter `parse:` 상태기계 — `(없음)→pending→parsed-pending-verify→<경로 확정>`. 각 단계는 앵커만 보고 재개(멱등, 중단·다기기 동기 안전).
 
@@ -65,6 +66,17 @@
 - **산출·핸드오프**: 이미지 extract → `_parse/ocr.md`(단일 엔진, diff 불가 — office docling 단일과 동형). 이후 refine 가 `verdict=single` 로 자동승격(→`refined.md`), 한글 표 의심 시에만 spot-check. brainify 는 동일하게 `refined.md` 소비.
 - **호출**: `brain-pdf parse-ocr <이미지>` (CLI 콘솔명 = `brain-pdf`, setup 문서의 `2nd-brain-parser <cmd>` 표기는 outdated). 산출 dict 는 parse-mineru 동형(engine=`ocr:<backend>`).
 - **상태 (2026-06-24)**: ✅ **구현·배포 완료**. (1) `entrypoint.py` `parse-ocr`(v0.3.0) — MinerU 가 이미지를 1페이지로 받음, 디바이스/엔진은 `PARSER_OCR_BACKEND` env(기본 `pipeline`=CPU, GPU 머신은 `vlm-vllm`/`vlm-transformers`)로 어댑터. (2) ghcr 이미지 발행 — overlay 빌드(검증된 base + 신 entrypoint), `:latest`+`:2026.06.24` push, compose digest 핀 `sha256:96f1919b…` 로 갱신. (3) `parser-drain.sh` 이미지 루프 배선 — png/jpg/jpeg/webp/tiff → parse-ocr → `ocr.json`, `_parse/` 하위(mineru 추출 figure) 제외. 검증: 한글 전국포럼 일정표 PNG end-to-end 드레인 → `ocr:pipeline ocr.json`, 발표자 표 정확. **잔여(선택)**: 타 PC(노트북) `git pull` 로 신 digest 전파 · GPU 머신 vlm 백엔드 env 셋업(pipeline 으로도 충분).
+
+## 오디오 전사 — 로컬 전용 (폰 음성 캡처)
+
+폰(갤럭시 S25 FE) 음성녹음 → SyncThing 단방향 ingress(볼트 밖 receive-only) → inbox 복사 → **로컬 faster-whisper 전사**의 오디오 레인. 문서 포맷 경로(docling/mineru)에 안 물리는 세 번째 레인이다.
+
+- **로컬 전용 — 외부 API 0.** 이미지 OCR 과 동일 원칙: 진료·회의 녹음은 민감 정보라 클라우드 STT(Google·OpenAI API 등) 불채택. faster-whisper `large-v3`(CTranslate2)가 한국어 전사 로컬 최상급.
+- **호스트-측 (컨테이너 우회) — HWP 선례.** 오디오는 단일소스(mineru N/A·diff 불가)라 refine 이 no-op → 추출=refine 을 한 번에 하고 `_parse/refined.md`(타임스탬프 라인 전사)를 직접 생산. 실행 = `parser-drain/audio_refine.py`(호스트 `~/.venvs/whisper` venv), 라우팅 = `parser-drain.sh` 오디오 루프.
+- **device-adaptive — venv 존재가 어댑터.** 동기 자산에 머신 키워드를 박지 않는다: whisper venv 있는 머신만 루프 실행(GPU 점유 노트북 등은 자동 skip). 모델·디바이스는 env(`WHISPER_MODEL`/`WHISPER_DEVICE`/`WHISPER_COMPUTE`)로 주입, CUDA 실패 시 CPU int8 자동 폴백.
+- **ingress 규약**: SyncThing receive-only 폴더(`~/phone-ingress/voice`, 기본값 — `AUDIO_INGRESS` env)에서 **move 금지**(SyncThing 이 복원) → **copy + ledger**(`~/.local/state/audio-ingress.ledger`, `이름:크기` 키 — brainify 가 inbox 밖으로 옮겨도 재복사 안 함). 복사 시 공백→`_` 정규화.
+- **선별 게이트**: 동기·전사까지 *자동*(로컬이라 안전), **PARA 편입은 brainify 실행(=Dr. Ben 지시) 시점** — 사적 녹음은 그때 삭제.
+- **상태 (2026-07-13)**: ✅ kimbi 구현·검증 완료 — RTX 5080(Blackwell sm_120)에서 CTranslate2 4.8.1 정상, 한국어 테스트(의학 용어 포함) 전사 무결, ingress→inbox→refined.md 드레인 end-to-end 통과. 잔여: 폰 Syncthing-Fork 페어링(Dr. Ben), 실녹음 1건 end-to-end.
 
 ## 관련
 

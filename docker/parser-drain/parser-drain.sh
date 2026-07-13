@@ -122,4 +122,53 @@ for f in "$INBOX"/**/*.png "$INBOX"/**/*.jpg "$INBOX"/**/*.jpeg "$INBOX"/**/*.we
   fi
 done
 
+# ── 오디오: 폰 ingress 복사 + 호스트-측 전사(faster-whisper) → refined.md 직접 ──
+# 폰(SyncThing receive-only, 볼트 밖) → inbox 복사(ledger 멱등) → 로컬 GPU 전사.
+# receive-only 폴더에서 move 금지(SyncThing 이 복원함) → copy + ledger(이름:크기).
+# whisper venv 부재 머신(예: GPU 점유 노트북)은 루프째 skip — device-adaptive,
+# 머신-specific 하드코딩 없음. 클라우드 STT 배제(이미지 OCR 과 동일 원칙).
+AUDIO_VENV="${AUDIO_VENV:-$HOME/.venvs/whisper}"
+AUDIO_INGRESS="${AUDIO_INGRESS:-$HOME/phone-ingress/voice}"
+AUDIO_REFINE="$REPO/docker/parser-drain/audio_refine.py"
+AUDIO_LEDGER="${AUDIO_LEDGER:-$HOME/.local/state/audio-ingress.ledger}"
+
+if [ -x "$AUDIO_VENV/bin/python" ]; then
+  # ① ingress → inbox 복사 (brainify 가 inbox 밖으로 옮겨도 ledger 가 재복사 방지)
+  if [ -d "$AUDIO_INGRESS" ]; then
+    touch "$AUDIO_LEDGER"
+    for f in "$AUDIO_INGRESS"/**/*.m4a "$AUDIO_INGRESS"/**/*.mp3 \
+             "$AUDIO_INGRESS"/**/*.wav "$AUDIO_INGRESS"/**/*.ogg \
+             "$AUDIO_INGRESS"/**/*.opus "$AUDIO_INGRESS"/**/*.aac \
+             "$AUDIO_INGRESS"/**/*.amr; do
+      base="$(basename "$f")"; key="$base:$(stat -c%s "$f")"
+      if ! grep -qxF "$key" "$AUDIO_LEDGER"; then
+        dest="$INBOX/${base// /_}"                 # 공백→_ (파일명 규칙)
+        if [ ! -e "$dest" ]; then cp "$f" "$dest"; fi
+        echo "$key" >>"$AUDIO_LEDGER"
+        log "ingress(audio): $base"
+      fi
+    done
+  fi
+
+  # ② inbox 전사 — 미처리분 모아 1회 호출(모델 1회 로드). 멱등: refined.md 있으면 skip.
+  pending=()
+  for f in "$INBOX"/**/*.m4a "$INBOX"/**/*.mp3 "$INBOX"/**/*.wav \
+           "$INBOX"/**/*.ogg "$INBOX"/**/*.opus "$INBOX"/**/*.aac \
+           "$INBOX"/**/*.amr; do
+    [[ "$f" == *_parse/* ]] && continue
+    [ -s "${f}_parse/refined.md" ] && continue
+    pending+=("$f")
+  done
+  if [ "${#pending[@]}" -gt 0 ]; then
+    log "parse(audio,host): ${#pending[@]} file(s)"
+    if timeout $((ENGINE_TIMEOUT * ${#pending[@]})) \
+         "$AUDIO_VENV/bin/python" "$AUDIO_REFINE" "${pending[@]}" >>"$LOG" 2>&1; then
+      n=$((n + ${#pending[@]}))
+      log "ok(audio): ${#pending[@]} file(s)"
+    else
+      log "WARN audio 일부/전부 실패 (개별 .parse-error 참조)"
+    fi
+  fi
+fi
+
 log "drain done ($n processed)"

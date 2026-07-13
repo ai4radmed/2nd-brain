@@ -95,16 +95,23 @@ PY
 )
 
 # ── Phase B: brainify ──
+# 오디오(폰 음성녹음)는 제외 — 선별 게이트(2026-07-13): 전사(parser-drain)까지만 자동,
+# PARA 편입은 Dr. Ben 지시의 대화형 /brainify 전용(사적 녹음이 무인 편입되는 것 방지).
+# 해당 항목은 00_inbox 에 남는 게 정상. 권위: brainify SKILL §오디오 + workflows/mobile-voice-capture.md
 brainify_json="$(python3 "$BRAINIFY_PY" scan 2>>"$LOG" || echo '{}')"
 while IFS= read -r item; do
   [ -z "$item" ] && continue
   claude_run "/brainify --headless \"$item\"" "$CAP_BRAINIFY" || true
 done < <(python3 - <<PY
 import json
+AUDIO = (".m4a", ".mp3", ".wav", ".ogg", ".opus", ".aac", ".amr")
 d=json.loads('''$brainify_json''' or '{}')
 for it in d.get("items",[]):
-    if not it.get("already_brainified"):
-        print(it["item"])
+    if it.get("already_brainified"):
+        continue
+    if it["item"].lower().endswith(AUDIO):
+        continue                      # 선별 게이트 — 대화형 brainify 전용
+    print(it["item"])
 PY
 )
 
