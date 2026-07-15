@@ -28,6 +28,19 @@ LOG="${BRAIN_DRAIN_LOG:-$HOME/.local/state/brain-drain.log}"
 mkdir -p "$(dirname "$LOG")"
 log(){ echo "$(date -Is) $*" >>"$LOG"; }
 
+# ── Telegram 활동 보고 (옵션2: 처리한 항목이 있을 때만 발송, 빈 실행은 침묵) ──
+# 봇 토큰 = host-local openclaw.json(미동기 secret) 재사용. chat = Dr. Ben. 둘 다 env 오버라이드.
+TG_CHAT="${BRAIN_DRAIN_TG_CHAT:-8669227844}"
+OPENCLAW_JSON="${OPENCLAW_JSON:-$HOME/.openclaw/openclaw.json}"
+tg_send(){  # $1=text. 비-fatal(발송 실패해도 드레인 결과 유효).
+  local text="$1" token
+  token="${BRAIN_DRAIN_TG_TOKEN:-$(python3 -c "import json;print(json.load(open('$OPENCLAW_JSON'))['channels']['telegram']['botToken'])" 2>/dev/null || true)}"
+  [ -z "$token" ] && { log "tg: no token — report skip"; return 0; }
+  curl -sS --max-time 20 "https://api.telegram.org/bot${token}/sendMessage" \
+    --data-urlencode "chat_id=${TG_CHAT}" --data-urlencode "text=${text}" \
+    >/dev/null 2>>"$LOG" || log "tg: send failed (non-fatal)"
+}
+
 HEADLESS_DIRECTIVE='무인 cron 드레인에서 헤드리스로 실행 중. 사용자가 없으니 절대 질문하지 말 것.
 automate-first/weekly-audit 정책: 모호하면 묻지 말고 낙관 배치 후 플래그(para_review: pending /
 parse_confidence|refine_confidence: low). 이미 처리된 항목(already_brainified / refined.md 존재)은 skip.
@@ -39,6 +52,7 @@ flock -n 9 || { log "already running, skip"; exit 0; }
 command -v "$CLAUDE_BIN" >/dev/null 2>&1 || { log "no claude: $CLAUDE_BIN"; exit 0; }
 
 SPENT="0"
+REFINED_N=0; BRAINIFIED_N=0; FAIL_N=0; BUDGET_HIT=0   # 활동 카운터(끝에서 Telegram 보고 판단)
 budget_left(){ python3 -c "import sys;print(1 if float('$SPENT')<float('$CAP_GLOBAL') else 0)"; }
 
 # claude -p 1회. $1=슬래시 프롬프트, $2=항목 $ 상한. 반환 0=ok,1=실패,2=예산소진
@@ -79,10 +93,11 @@ while IFS=$'\t' read -r action pdir; do
   [ -z "$action" ] && continue
   case "$action" in
     promote)
-      if python3 "$REFINE_PY" promote "$pdir" >>"$LOG" 2>&1; then log "promote ok: $pdir"
-      else log "promote FAIL: $pdir"; fi ;;
+      if python3 "$REFINE_PY" promote "$pdir" >>"$LOG" 2>&1; then log "promote ok: $pdir"; REFINED_N=$((REFINED_N+1))
+      else log "promote FAIL: $pdir"; FAIL_N=$((FAIL_N+1)); fi ;;
     refine)
-      claude_run "/refine --headless \"$pdir\"" "$CAP_REFINE" || true ;;
+      claude_run "/refine --headless \"$pdir\"" "$CAP_REFINE" && rc=0 || rc=$?
+      case "${rc:-1}" in 0) REFINED_N=$((REFINED_N+1));; 2) BUDGET_HIT=1;; *) FAIL_N=$((FAIL_N+1));; esac ;;
   esac
 done < <(python3 - <<PY
 import json
@@ -101,7 +116,8 @@ PY
 brainify_json="$(python3 "$BRAINIFY_PY" scan 2>>"$LOG" || echo '{}')"
 while IFS= read -r item; do
   [ -z "$item" ] && continue
-  claude_run "/brainify --headless \"$item\"" "$CAP_BRAINIFY" || true
+  claude_run "/brainify --headless \"$item\"" "$CAP_BRAINIFY" && rc=0 || rc=$?
+  case "${rc:-1}" in 0) BRAINIFIED_N=$((BRAINIFIED_N+1));; 2) BUDGET_HIT=1;; *) FAIL_N=$((FAIL_N+1));; esac
 done < <(python3 - <<PY
 import json
 AUDIO = (".m4a", ".mp3", ".wav", ".ogg", ".opus", ".aac", ".amr")
@@ -116,3 +132,35 @@ PY
 )
 
 log "=== brain-drain done (run=\$$SPENT) ==="
+
+# ── 활동 보고 (Telegram) — 처리한 항목이 있을 때만. 빈 실행(inbox 0)은 침묵 → 스팸 없음 ──
+ACTIVITY=$((REFINED_N + BRAINIFIED_N + FAIL_N))
+if [ "$ACTIVITY" -gt 0 ]; then
+  # 실제 파싱오류 stub 만 집계: parse_confidence:low (para_review:pending 대량 백로그는 제외 — 그건 주간감사 몫)
+  low_report="$(BRAINIFY_PY="$BRAINIFY_PY" python3 - <<'PY'
+import json, os, subprocess
+try:
+    out = subprocess.run(["python3", os.environ["BRAINIFY_PY"], "audit"],
+                         capture_output=True, text=True, timeout=120).stdout
+    low = [f for f in json.loads(out).get("flagged", []) if f.get("parse_confidence") == "low"]
+    print(len(low))
+    for f in low[:5]:
+        print("  · " + os.path.basename(f.get("note", "")))
+except Exception:
+    print(0)
+PY
+)"
+  low_n="$(printf '%s\n' "$low_report" | head -1)"
+  low_list="$(printf '%s\n' "$low_report" | tail -n +2)"
+  msg="🧠 brain-drain @$(hostname)
+✅ refine ${REFINED_N} · brainify ${BRAINIFIED_N}"
+  if [ "$FAIL_N" -gt 0 ]; then msg="${msg}
+⚠ 실패 ${FAIL_N}건"; fi
+  if [ "$BUDGET_HIT" = 1 ]; then msg="${msg}
+⏸ 예산상한 도달(다음 틱 재개)"; fi
+  if [ "${low_n:-0}" -gt 0 ] 2>/dev/null; then msg="${msg}
+🚩 파싱오류 stub ${low_n}건 (parse_confidence:low)
+${low_list}"; fi
+  tg_send "$msg"
+  log "tg: report sent (refine=$REFINED_N brainify=$BRAINIFIED_N fail=$FAIL_N budget=$BUDGET_HIT low=${low_n:-0})"
+fi
