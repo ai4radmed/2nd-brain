@@ -68,7 +68,10 @@ claude_run(){
         --append-system-prompt "$HEADLESS_DIRECTIVE" ) >"$tmp" 2>>"$LOG"; then
     rc=0
   else
-    rc=$?; log "claude FAIL/timeout (rc=$rc): $prompt"; rm -f "$tmp"; return 1
+    rc=$?; log "claude FAIL/timeout (rc=$rc): $prompt"
+    # 실패 원인 진단용 — 출력 꼬리 보존(그동안 버려져서 rc=1 원인 추적 불가였음. 2026-07-16)
+    log "claude FAIL output tail: $(tail -c 2000 "$tmp" 2>/dev/null | tr '\n' ' ')"
+    rm -f "$tmp"; return 1
   fi
   # total_cost_usd 누적 + is_error 점검
   read -r err cost turns < <(python3 - "$tmp" <<'PY'
@@ -80,9 +83,14 @@ except Exception:
     print(1,0,0)
 PY
 )
+  if [ "$err" = 1 ]; then
+    SPENT="$(python3 -c "print(round(float('$SPENT')+float('$cost'),6))")"
+    log "claude is_error (\$$cost, ${turns}t, run=\$$SPENT): $prompt"
+    log "claude is_error output tail: $(tail -c 2000 "$tmp" 2>/dev/null | tr '\n' ' ')"
+    rm -f "$tmp"; return 1
+  fi
   rm -f "$tmp"
   SPENT="$(python3 -c "print(round(float('$SPENT')+float('$cost'),6))")"
-  if [ "$err" = 1 ]; then log "claude is_error (\$$cost, ${turns}t, run=\$$SPENT): $prompt"; return 1; fi
   log "claude ok (\$$cost, ${turns}t, run=\$$SPENT): $prompt"; return 0
 }
 
@@ -97,6 +105,11 @@ while IFS=$'\t' read -r action pdir; do
       else log "promote FAIL: $pdir"; FAIL_N=$((FAIL_N+1)); fi ;;
     refine)
       claude_run "/refine --headless \"$pdir\"" "$CAP_REFINE" && rc=0 || rc=$?
+      # 사후 커밋 검증(2026-07-16): 작업을 끝내고 종료만 비정상인 false-fail 억제 —
+      # refined.md 가 생겼으면 완료로 재집계 (실사례: 커밋 후 rc=1 로 죽어 '⚠ 실패' 오보고)
+      if [ "${rc:-1}" = 1 ] && { [ -f "$pdir/refined.md" ] || [ -f "$SB_DATA/$pdir/refined.md" ]; }; then
+        log "post-check: refined.md 존재 — 완료(비정상 종료)로 재집계: $pdir"; rc=0
+      fi
       case "${rc:-1}" in 0) REFINED_N=$((REFINED_N+1));; 2) BUDGET_HIT=1;; *) FAIL_N=$((FAIL_N+1));; esac ;;
   esac
 done < <(python3 - <<PY
@@ -117,6 +130,22 @@ brainify_json="$(python3 "$BRAINIFY_PY" scan 2>>"$LOG" || echo '{}')"
 while IFS= read -r item; do
   [ -z "$item" ] && continue
   claude_run "/brainify --headless \"$item\"" "$CAP_BRAINIFY" && rc=0 || rc=$?
+  # 사후 커밋 검증(2026-07-16): false-fail '⚠ 실패' 텔레그램 오보고 억제.
+  # ① 인박스에서 사라짐(이동 커밋) ② 남아 있어도 scan 이 already_brainified 판정(노트 커밋)
+  # — 어느 쪽이든 작업은 끝났고 종료만 비정상이었던 것 → 완료로 재집계.
+  if [ "${rc:-1}" = 1 ]; then
+    case "$item" in /*) probe="$item";; *) probe="$SB_DATA/sources/00_inbox/$item";; esac
+    if [ ! -e "$probe" ]; then
+      log "post-check: 인박스에서 이동됨(커밋) — 완료(비정상 종료)로 재집계: $item"; rc=0
+    elif python3 "$BRAINIFY_PY" scan 2>/dev/null | ITEM="$item" python3 -c '
+import json, os, sys
+d = json.load(sys.stdin)
+hit = next((it for it in d.get("items", []) if it.get("item") == os.environ["ITEM"]), None)
+sys.exit(0 if hit and hit.get("already_brainified") else 1)
+'; then
+      log "post-check: already_brainified 판정(노트 커밋) — 완료(비정상 종료)로 재집계: $item"; rc=0
+    fi
+  fi
   case "${rc:-1}" in 0) BRAINIFIED_N=$((BRAINIFIED_N+1));; 2) BUDGET_HIT=1;; *) FAIL_N=$((FAIL_N+1));; esac
 done < <(python3 - <<PY
 import json
