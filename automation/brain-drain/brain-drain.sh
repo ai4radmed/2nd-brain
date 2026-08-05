@@ -30,16 +30,9 @@ log(){ echo "$(date -Is) $*" >>"$LOG"; }
 
 # ── Telegram 활동 보고 (옵션2: 처리한 항목이 있을 때만 발송, 빈 실행은 침묵) ──
 # 봇 토큰 = host-local openclaw.json(미동기 secret) 재사용. chat = Dr. Ben. 둘 다 env 오버라이드.
+# 문안 생성·발송 자체는 drain-report.py 가 진다(아래 보고 블록). 여기서는 자격만 정한다.
 TG_CHAT="${BRAIN_DRAIN_TG_CHAT:-8669227844}"
 OPENCLAW_JSON="${OPENCLAW_JSON:-$HOME/.openclaw/openclaw.json}"
-tg_send(){  # $1=text. 비-fatal(발송 실패해도 드레인 결과 유효).
-  local text="$1" token
-  token="${BRAIN_DRAIN_TG_TOKEN:-$(python3 -c "import json;print(json.load(open('$OPENCLAW_JSON'))['channels']['telegram']['botToken'])" 2>/dev/null || true)}"
-  [ -z "$token" ] && { log "tg: no token — report skip"; return 0; }
-  curl -sS --max-time 20 "https://api.telegram.org/bot${token}/sendMessage" \
-    --data-urlencode "chat_id=${TG_CHAT}" --data-urlencode "text=${text}" \
-    >/dev/null 2>>"$LOG" || log "tg: send failed (non-fatal)"
-}
 
 HEADLESS_DIRECTIVE='무인 cron 드레인에서 헤드리스로 실행 중. 사용자가 없으니 절대 질문하지 말 것.
 automate-first/weekly-audit 정책: 모호하면 묻지 말고 낙관 배치 후 플래그(para_review: pending /
@@ -52,7 +45,7 @@ flock -n 9 || { log "already running, skip"; exit 0; }
 command -v "$CLAUDE_BIN" >/dev/null 2>&1 || { log "no claude: $CLAUDE_BIN"; exit 0; }
 
 SPENT="0"
-REFINED_N=0; BRAINIFIED_N=0; FAIL_N=0; BUDGET_HIT=0   # 활동 카운터(끝에서 Telegram 보고 판단)
+REFINED_N=0; BRAINIFIED_N=0; RENOTED_N=0; FAIL_N=0; BUDGET_HIT=0   # 활동 카운터(끝에서 Telegram 보고 판단)
 budget_left(){ python3 -c "import sys;print(1 if float('$SPENT')<float('$CAP_GLOBAL') else 0)"; }
 
 # claude -p 1회. $1=슬래시 프롬프트, $2=항목 $ 상한. 반환 0=ok,1=실패,2=예산소진
@@ -95,8 +88,13 @@ PY
 }
 
 # ── Phase R: refine ──
+# 스캔 범위 = sources 전체(2026-08-05). 예전엔 기본값(00_inbox)만 봐서, PARA 로 분류돼 인박스를
+# 떠난 자료의 _parse 는 영원히 refine 되지 않았다 — 실측 결과 그렇게 묶인 게 72건이었는데
+# 드레인은 매번 "refine 0건"을 보고했다. refined.md 가 없으면 brainify 가 stub(parse_confidence:low)을
+# 쓰므로, 그 침묵이 곧 파싱오류 플래그의 공급원이었다.
+# 정렬상 sources/00_inbox 가 먼저 나오므로 신규 유입이 여전히 우선 처리된다.
 log "=== brain-drain start ==="
-refine_json="$(python3 "$REFINE_PY" scan 2>>"$LOG" || echo '{}')"
+refine_json="$(python3 "$REFINE_PY" scan --root "$SB_DATA/sources" 2>>"$LOG" || echo '{}')"
 while IFS=$'\t' read -r action pdir; do
   [ -z "$action" ] && continue
   case "$action" in
@@ -160,36 +158,45 @@ for it in d.get("items",[]):
 PY
 )
 
+# ── Phase C: renote — 뒤늦게 도착한 풀텍스트로 stub 노트 재작성 (2026-08-05 신설) ──
+# parse_confidence:low 는 "노트를 쓸 때 refined.md 가 없었다"는 뜻인데, Phase R 이 나중에 그걸
+# 만들어도 노트는 저절로 안 고쳐진다(Phase B 의 scan 은 인박스 미처리 항목만 본다). 그 틈에서
+# 파싱은 끝났는데 플래그만 남아 매일 '파싱오류'로 보고되던 게 이 Phase 의 존재 이유다.
+# ready(_parse 전부에 refined.md 존재)만 집는다 — 아직 refine 대기인 건 다음 틱이 채운다.
+while IFS= read -r note; do
+  [ -z "$note" ] && continue
+  [ "$(budget_left)" = 1 ] || { BUDGET_HIT=1; log "budget hit — renote 중단"; break; }
+  claude_run "/brainify --headless --renote \"$note\"" "$CAP_BRAINIFY" && rc=0 || rc=$?
+  # 사후 검증: renote-write 가 남기는 renoted: 마커가 생겼으면 완료(종료만 비정상인 false-fail 억제).
+  if [ "${rc:-1}" = 1 ] && grep -q "^renoted:" "$SB_DATA/$note" 2>/dev/null; then
+    log "post-check: renoted 마커 존재 — 완료(비정상 종료)로 재집계: $note"; rc=0
+  fi
+  case "${rc:-1}" in 0) RENOTED_N=$((RENOTED_N+1));; 2) BUDGET_HIT=1;; *) FAIL_N=$((FAIL_N+1));; esac
+done < <(python3 "$BRAINIFY_PY" renote-scan 2>>"$LOG" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for it in d.get("items", []):
+    if it.get("ready"):
+        print(it["note"])
+')
+
 log "=== brain-drain done (run=\$$SPENT) ==="
 
 # ── 활동 보고 (Telegram) — 처리한 항목이 있을 때만. 빈 실행(inbox 0)은 침묵 → 스팸 없음 ──
-ACTIVITY=$((REFINED_N + BRAINIFIED_N + FAIL_N))
+# 문안 생성·발송은 drain-report.py 가 전담한다(2026-08-05). 이 보고와 아침 brain-health 보고가
+# 같은 방에 섞여 오므로 문법을 통일했다 — 번호식·무이모지·줄끝 [o]/[!]/[x]. 규약 원본은
+# automation/health/health-report.py 의 docstring.
+ACTIVITY=$((REFINED_N + BRAINIFIED_N + RENOTED_N + FAIL_N))
 if [ "$ACTIVITY" -gt 0 ]; then
-  # 실제 파싱오류 stub 만 집계: parse_confidence:low (para_review:pending 대량 백로그는 제외 — 그건 주간감사 몫)
-  low_report="$(BRAINIFY_PY="$BRAINIFY_PY" python3 - <<'PY'
-import json, os, subprocess
-try:
-    out = subprocess.run(["python3", os.environ["BRAINIFY_PY"], "audit"],
-                         capture_output=True, text=True, timeout=120).stdout
-    low = [f for f in json.loads(out).get("flagged", []) if f.get("parse_confidence") == "low"]
-    print(len(low))
-    for f in low[:5]:
-        print("  · " + os.path.basename(f.get("note", "")))
-except Exception:
-    print(0)
-PY
-)"
-  low_n="$(printf '%s\n' "$low_report" | head -1)"
-  low_list="$(printf '%s\n' "$low_report" | tail -n +2)"
-  msg="🧠 brain-drain @$(hostname)
-✅ refine ${REFINED_N} · brainify ${BRAINIFIED_N}"
-  if [ "$FAIL_N" -gt 0 ]; then msg="${msg}
-⚠ 실패 ${FAIL_N}건"; fi
-  if [ "$BUDGET_HIT" = 1 ]; then msg="${msg}
-⏸ 예산상한 도달(다음 틱 재개)"; fi
-  if [ "${low_n:-0}" -gt 0 ] 2>/dev/null; then msg="${msg}
-🚩 파싱오류 stub ${low_n}건 (parse_confidence:low)
-${low_list}"; fi
-  tg_send "$msg"
-  log "tg: report sent (refine=$REFINED_N brainify=$BRAINIFIED_N fail=$FAIL_N budget=$BUDGET_HIT low=${low_n:-0})"
+  BRAINIFY_PY="$BRAINIFY_PY" \
+  BRAIN_DRAIN_TG_TOKEN="${BRAIN_DRAIN_TG_TOKEN:-}" BRAIN_DRAIN_TG_CHAT="$TG_CHAT" \
+  OPENCLAW_JSON="$OPENCLAW_JSON" \
+  python3 "$(dirname "${BASH_SOURCE[0]}")/drain-report.py" \
+    --refine "$REFINED_N" --brainify "$BRAINIFIED_N" --renote "$RENOTED_N" \
+    --fail "$FAIL_N" --budget "$BUDGET_HIT" \
+    >>"$LOG" 2>&1 || log "tg: report failed (non-fatal — 드레인 결과는 유효)"
+  log "tg: report sent (refine=$REFINED_N brainify=$BRAINIFIED_N renote=$RENOTED_N fail=$FAIL_N budget=$BUDGET_HIT)"
 fi

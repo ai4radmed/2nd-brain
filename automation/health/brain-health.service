@@ -1,0 +1,9 @@
+[Unit]
+Description=2nd-brain 아침 헬스체크·텔레그램 보고 (host)
+After=docker.service
+# 감시자는 감시 대상 밖 — 호스트에서 돌며 OpenClaw 컨테이너를 들여다본다.
+# 점검은 부작용 0(읽기·상태조회만). 게이트웨이가 죽어 있어도 이 유닛은 돌고 보고한다.
+
+[Service]
+Type=oneshot
+ExecStart=%h/projects/2nd-brain/automation/health/brain-health.sh
