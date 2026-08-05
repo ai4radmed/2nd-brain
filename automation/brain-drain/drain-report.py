@@ -117,7 +117,7 @@ def format_report(items: list[dict], now: datetime, mode: str = "2분 무인 드
     engine_str = f" · {engine}" if engine else ""
 
     if not problems:
-        head = f"{mode_prefix} 모든 항목 정상 ({total}/{total}){engine_str}"
+        head = f"{mode_prefix} 정상 ({total}/{total}){engine_str}"
     else:
         parts = []
         if fail_n:
