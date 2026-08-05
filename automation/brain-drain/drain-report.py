@@ -67,14 +67,18 @@ def collect_low() -> tuple[int, list[str], int, bool]:
 
 
 def build_items(refine: int, brainify: int, renote: int, fail: int, budget_hit: bool,
-                low_n: int, low_names: list[str], missing_n: int, low_ok: bool) -> list[dict]:
+                low_n: int, low_names: list[str], missing_n: int, low_ok: bool,
+                fail_reason: str = "") -> list[dict]:
     """(그룹번호, 제목, 항목들) 을 평평한 리스트로. 항목 = {group, label, status, extra}."""
+    fail_label = f"처리 실패 {fail}건"
+    if fail and fail_reason:
+        fail_label += f" ({fail_reason})"
     items: list[dict] = [
         {"g": 1, "gt": "처리 결과", "label": f"정제(refine) {refine}건", "status": "ok"},
         {"g": 1, "gt": "처리 결과", "label": f"편입(brainify) {brainify}건", "status": "ok"},
         {"g": 1, "gt": "처리 결과", "label": f"재작성(renote) {renote}건", "status": "ok"},
         {"g": 1, "gt": "처리 결과",
-         "label": f"처리 실패 {fail}건", "status": "fail" if fail else "ok"},
+         "label": fail_label, "status": "fail" if fail else "ok"},
         {"g": 1, "gt": "처리 결과",
          "label": "예산상한 도달(다음 틱 재개)" if budget_hit else "예산상한 여유",
          "status": "warn" if budget_hit else "ok"},
@@ -93,15 +97,14 @@ def build_items(refine: int, brainify: int, renote: int, fail: int, budget_hit: 
                       "label": f"파싱오류 stub {low_n}건 (parse_confidence:low)",
                       "status": "warn" if low_n else "ok", "extra": extra})
 
-    # 원본 부재는 **고장이 아니다** — 첨부 없이 온 포워드라 파싱할 대상 자체가 없다.
-    # 경고로 띄우면 고칠 수 없는 항목이 매일 붉게 남아 [!] 의 신뢰를 깎으므로, 건수만 알린다.
+    # source_missing 플래그 지정 노트는 파싱할 원본 첨부가 없음을 명시해둔 상태(정상 표기)
     items.append({"g": 2, "gt": "남은 플래그",
-                  "label": f"원본 부재 {missing_n}건 (source_missing — 첨부 0 포워드)",
+                  "label": f"원본부재 지정 노트 {missing_n}건 (source_missing 플래그)",
                   "status": "ok"})
     return items
 
 
-def format_report(items: list[dict], now: datetime) -> str:
+def format_report(items: list[dict], now: datetime, mode: str = "2분 무인 드레인") -> str:
     host = socket.gethostname()
     total = len(items)
     for i, it in enumerate(items, 1):
@@ -111,15 +114,17 @@ def format_report(items: list[dict], now: datetime) -> str:
     warn_n = len(problems) - fail_n
     ok = total - len(problems)
 
+    mode_prefix = f"[{mode}] " if mode else ""
+
     if not problems:
-        head = f"2nd-brain({host}) 드레인 모든 항목 정상 ({total}/{total})"
+        head = f"{mode_prefix}2nd-brain({host}) 드레인 모든 항목 정상 ({total}/{total})"
     else:
         parts = []
         if fail_n:
             parts.append(f"문제 {fail_n}건")
         if warn_n:
             parts.append(f"경고 {warn_n}건")
-        head = f"2nd-brain({host}) 드레인 {' · '.join(parts)} ({ok}/{total} 정상)"
+        head = f"{mode_prefix}2nd-brain({host}) 드레인 {' · '.join(parts)} ({ok}/{total} 정상)"
 
     lines = [head, now.astimezone(KST).strftime("%Y-%m-%d %H:%M KST")]
 
@@ -172,14 +177,16 @@ def main() -> int:
     ap.add_argument("--brainify", type=int, default=0)
     ap.add_argument("--renote", type=int, default=0)
     ap.add_argument("--fail", type=int, default=0)
+    ap.add_argument("--fail-reason", type=str, default="", help="처리 실패 상세 사유")
     ap.add_argument("--budget", type=int, default=0, help="1=예산상한 도달")
+    ap.add_argument("--mode", type=str, default="2분 무인 드레인", help="실행 모드 라벨")
     ap.add_argument("--no-send", action="store_true", help="문안만 출력(발송 안 함)")
     a = ap.parse_args()
 
     low_n, low_names, missing_n, low_ok = collect_low()
     items = build_items(a.refine, a.brainify, a.renote, a.fail, bool(a.budget),
-                        low_n, low_names, missing_n, low_ok)
-    text = format_report(items, datetime.now(timezone.utc))
+                        low_n, low_names, missing_n, low_ok, a.fail_reason)
+    text = format_report(items, datetime.now(timezone.utc), a.mode)
     print(text)
 
     if a.no_send:
