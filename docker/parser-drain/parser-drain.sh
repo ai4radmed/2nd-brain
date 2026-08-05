@@ -69,7 +69,19 @@ is_inbox(){ case "$1" in "$INBOX"/*) return 0;; *) return 1;; esac; }
 cap_reached(){ [ "$MAX_PER_RUN" -gt 0 ] && [ "$bn" -ge "$MAX_PER_RUN" ]; }
 # 백로그 항목에서만 캡을 검사·중단. 인박스면 무조건 통과.
 backlog_stop(){ is_inbox "$1" && return 1; cap_reached; }
-count_one(){ n=$((n+1)); is_inbox "$1" || bn=$((bn+1)); }
+count_one(){ n=$((n+1)); }
+
+# ★ 캡은 **시도**를 센다(성공이 아니라). 성공만 세면 실패가 캡을 소비하지 않아, 깨진 파일이
+#   많을수록 런이 무한정 길어진다 — 확대 첫날 실측: 메리츠화재 PDF 등에서 FAIL 이 줄줄이
+#   나면서 런이 몇 시간째 안 끝났다.
+attempt_one(){ is_inbox "$1" || bn=$((bn+1)); }
+
+# ★ 이미 실패한 파일은 다음 런에서 건너뛴다. 예전 멱등 검사는 성공 산출물(diff/docling/ocr.json)만
+#   봐서, 실패 파일은 **매 런마다 영원히 재시도**됐다(로그에 FAIL 2200여 줄이 쌓인 이유).
+#   인박스만 보던 시절엔 몇 건이라 티가 안 났지만 범위를 넓히면 캡을 통째로 먹는다.
+#   재시도는 명시적으로: PARSER_DRAIN_RETRY_ERRORS=1 (파서 개선 후 일괄 재시도용).
+ferr=0
+skip_failed(){ [ -e "$1/.parse-error" ] && [ "${PARSER_DRAIN_RETRY_ERRORS:-0}" != 1 ]; }
 
 # 후보 경로 나열. $@ = 확장자들. 인박스분을 먼저, 그다음 sources 전체(중복은 dedup).
 # 파싱 산출물 내부(`*_parse/`)는 여기서 일괄 제외 — mineru 가 뽑아 둔 figure 이미지를 다시
@@ -92,7 +104,8 @@ while IFS= read -r f; do
   backlog_stop "$f" && { log "cap($MAX_PER_RUN) 도달 — hwp 백로그 중단"; break; }
   out="${f}_parse"
   [ -s "$out/refined.md" ] && continue           # 멱등
-  log "parse(hwp,host): $f"
+  skip_failed "$out" && { ferr=$((ferr+1)); continue; }
+  log "parse(hwp,host): $f"; attempt_one "$f"
   if python3 "$HWP_REFINE" "$f" >>"$LOG" 2>&1; then
     log "ok(hwp,host): $f"; count_one "$f"
   else
@@ -111,8 +124,9 @@ while IFS= read -r f; do
   # 멱등: PDF=diff.json, 비-PDF=docling.json 있으면 완료로 보고 skip
   if [ "$ext" = pdf ]; then [ -s "$out/diff.json" ] && continue
   else [ -s "$out/docling.json" ] && continue; fi
+  skip_failed "$out" && { ferr=$((ferr+1)); continue; }
   mkdir -p "$out"
-  log "parse($ext): $f"
+  log "parse($ext): $f"; attempt_one "$f"
 
   # docling (전 포맷; 이미 있으면 재사용)
   if [ ! -s "$out/docling.json" ]; then
@@ -149,8 +163,9 @@ while IFS= read -r f; do
   ext="${f##*.}"; ext="${ext,,}"
   cpath="${f/#$SB_DATA/$CMNT}"               # host→컨테이너 입력 경로
   [ -s "$out/ocr.json" ] && continue         # 멱등
+  skip_failed "$out" && { ferr=$((ferr+1)); continue; }
   mkdir -p "$out"
-  log "parse(ocr:$ext): $f"
+  log "parse(ocr:$ext): $f"; attempt_one "$f"
   if run_to "$out/ocr.json" parse-ocr "$cpath"; then
     log "ok(ocr): $f"; count_one "$f"
   else
@@ -224,4 +239,6 @@ if [ -x "$AUDIO_VENV/bin/python" ]; then
   fi
 fi
 
-log "drain done ($n processed)"
+# 실패로 건너뛴 건수를 반드시 남긴다 — 조용히 빠지면 "백로그가 다 끝났다"로 오독된다.
+[ "$ferr" -gt 0 ] && log "skip(.parse-error): ${ferr}건 — 재시도는 PARSER_DRAIN_RETRY_ERRORS=1"
+log "drain done ($n processed, backlog ${bn}/${MAX_PER_RUN}, skip-failed ${ferr})"
