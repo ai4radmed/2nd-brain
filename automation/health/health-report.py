@@ -135,16 +135,17 @@ def build_groups(summary: dict) -> tuple[list, int, int, list]:
     return groups, n, ok, problems
 
 
-def headline(host: str, total: int, ok: int, fail_n: int, warn_n: int) -> str:
-    """전부 정상일 때만 '정상 (N/N)' — [2nd-brain 헬스체크] 서두 라벨 유지가 핵심."""
+def headline(host: str, total: int, ok: int, fail_n: int, warn_n: int, engine: str = "Claude 3.5 Sonnet") -> str:
+    """전부 정상일 때만 '정상 (N/N)' — [2nd-brain 헬스체크] 서두 라벨 + AI 모델 적시."""
+    engine_str = f" · {engine}" if engine else ""
     if not fail_n and not warn_n:
-        return f"[2nd-brain 헬스체크] 정상 ({total}/{total})"
+        return f"[2nd-brain 헬스체크] 정상 ({total}/{total}){engine_str}"
     parts = []
     if fail_n:
         parts.append(f"문제 {fail_n}건")
     if warn_n:
         parts.append(f"경고 {warn_n}건")
-    return f"[2nd-brain 헬스체크] {' · '.join(parts)} ({ok}/{total} 정상)"
+    return f"[2nd-brain 헬스체크] {' · '.join(parts)} ({ok}/{total} 정상){engine_str}"
 
 
 def format_kst(iso: str) -> str:
@@ -169,7 +170,8 @@ def format_report(summary: dict | None, style: str = "plain") -> str:
     fail_n = sum(1 for p in problems if p["status"] == "fail")
     warn_n = len(problems) - fail_n
 
-    lines.append(headline(summary.get("host", "?"), total, ok, fail_n, warn_n))
+    engine = os.environ.get("HEALTH_ENGINE", "Claude 3.5 Sonnet")
+    lines.append(headline(summary.get("host", "?"), total, ok, fail_n, warn_n, engine))
     lines.append(format_kst(summary.get("checkedAt", "")))
 
     for g in groups:
