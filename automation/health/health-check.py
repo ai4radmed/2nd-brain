@@ -207,12 +207,25 @@ def check_auth() -> Section:
         s.probe("Claude 라이브 호출 (실제 1턴)", _live)
 
     def _gog():
-        rc, out = run(["gog", "auth", "list"])
+        env = os.environ.copy()
+        for env_path in [OPENCLAW_DOCKER / ".env", Path.home() / "projects/2nd-brain/.env"]:
+            if env_path.is_file():
+                for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    if line.startswith("GOG_KEYRING_PASSWORD="):
+                        env["GOG_KEYRING_PASSWORD"] = line.split("=", 1)[1].strip()
+                        env["GOG_KEYRING_BACKEND"] = "file"
+        try:
+            p = subprocess.run(["gog", "auth", "list"], capture_output=True, text=True, env=env, timeout=15)
+            rc, out = p.returncode, (p.stdout or "") + (p.stderr or "")
+        except subprocess.TimeoutExpired:
+            return "fail", "timeout (15s)"
+        except Exception as e:
+            return "fail", str(e)
         if rc != 0:
             return "fail", out.strip()[:140]
         return (GOG_ACCOUNT in out), (f"{GOG_ACCOUNT} 없음" if GOG_ACCOUNT not in out else "")
 
-    s.probe(f"gog 계정 인증 ({GOG_ACCOUNT})", _gog)
+    s.probe(f"구글 계정 로그인 ({GOG_ACCOUNT})", _gog)
 
     def _keyring():
         env = OPENCLAW_DOCKER / ".env"

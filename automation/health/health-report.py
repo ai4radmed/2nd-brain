@@ -136,15 +136,15 @@ def build_groups(summary: dict) -> tuple[list, int, int, list]:
 
 
 def headline(host: str, total: int, ok: int, fail_n: int, warn_n: int) -> str:
-    """전부 정상일 때만 '모든 점검항목 정상' — 경고 1건도 그 말을 쓰지 않는다."""
+    """전부 정상일 때만 '정상 (N/N)' — [시스템 점검] 서두 라벨 유지가 핵심."""
     if not fail_n and not warn_n:
-        return f"2nd-brain({host}) 모든 점검항목 정상 ({total}/{total})"
+        return f"[시스템 점검] 정상 ({total}/{total})"
     parts = []
     if fail_n:
         parts.append(f"문제 {fail_n}건")
     if warn_n:
         parts.append(f"경고 {warn_n}건")
-    return f"2nd-brain({host}) 점검항목 {' · '.join(parts)} ({ok}/{total} 정상)"
+    return f"[시스템 점검] {' · '.join(parts)} ({ok}/{total} 정상)"
 
 
 def format_kst(iso: str) -> str:
