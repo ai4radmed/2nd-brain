@@ -104,7 +104,7 @@ def build_items(refine: int, brainify: int, renote: int, fail: int, budget_hit: 
     return items
 
 
-def format_report(items: list[dict], now: datetime, mode: str = "2분 무인 드레인", engine: str = "Gemini") -> str:
+def format_report(items: list[dict], now: datetime, mode: str = "2분 무인 드레인", engine: str = "Gemini 2.5 Flash") -> str:
     total = len(items)
     for i, it in enumerate(items, 1):
         it["no"] = f"{it['g']}-{i}"
@@ -180,7 +180,7 @@ def main() -> int:
     ap.add_argument("--fail-reason", type=str, default="", help="처리 실패 상세 사유")
     ap.add_argument("--budget", type=int, default=0, help="1=예산상한 도달")
     ap.add_argument("--mode", type=str, default="2분 무인 드레인", help="실행 모드 라벨")
-    ap.add_argument("--engine", type=str, default="Gemini", help="사용 AI 엔진 이름")
+    ap.add_argument("--engine", type=str, default="Gemini 2.5 Flash", help="사용 AI 엔진 이름")
     ap.add_argument("--no-send", action="store_true", help="문안만 출력(발송 안 함)")
     a = ap.parse_args()
 

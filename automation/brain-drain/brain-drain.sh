@@ -310,8 +310,8 @@ if [ "$ACTIVITY" -gt 0 ]; then
   if [ -n "$FAIL_REASON" ]; then
     EXTRA_ARGS+=(--fail-reason "$FAIL_REASON")
   fi
-  ENGINE_LABEL="Gemini"
-  [ "${USE_GEMINI_FIRST:-1}" = "0" ] && ENGINE_LABEL="Claude"
+  ENGINE_LABEL="Gemini 2.5 Flash"
+  [ "${USE_GEMINI_FIRST:-1}" = "0" ] && ENGINE_LABEL="Claude 3.5 Sonnet"
   BRAINIFY_PY="$BRAINIFY_PY" \
   BRAIN_DRAIN_TG_TOKEN="${BRAIN_DRAIN_TG_TOKEN:-}" BRAIN_DRAIN_TG_CHAT="$TG_CHAT" \
   OPENCLAW_JSON="$OPENCLAW_JSON" \
