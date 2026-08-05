@@ -20,8 +20,15 @@
   · 명사형 — "…열림" 이지 "…열렸습니다" 가 아니다. 판정은 줄 끝 표식이 지므로,
     문장과 표식이 서로 반대말이 되는 사고를 막는다.
 
-이 스크립트의 exit code 는 **보고 발송 성패만** 나타낸다. 시스템의 건강 상태는
-health-check.py 의 exit code 가 이미 표현하므로 여기서 중복해 실패시키지 않는다.
+exit code (시스템 건강 상태가 아니라 **이 보고의 처리 결과**만 나타낸다 — 건강은
+health-check.py 의 exit code 가 이미 표현하므로 여기서 중복해 실패시키지 않는다):
+    0  실제로 발송함
+    2  발송 안 함 — 정책(HEALTH_REPORT=off/fail)이나 자격 미설정. **실패가 아니다.**
+    1  발송 시도했으나 실패
+
+0 과 2 를 가르는 이유(2026-08-05): 호출자(brain-health.sh)가 "오늘 보고 완료" 마커를 남기는데,
+발송하지 않은 경우까지 0 이면 `HEALTH_REPORT=fail` 모드에서 **아침에 정상 → 마커 기록 →
+그날 늦게 이상이 생겨도 하루 1회 가드에 막혀 영영 보고 못 함**이 된다.
 """
 from __future__ import annotations
 
@@ -228,7 +235,7 @@ def main() -> int:
 
     if not should_send(summary, os.environ.get("HEALTH_REPORT")):
         print(f"보고 생략 (HEALTH_REPORT={os.environ.get('HEALTH_REPORT')})")
-        return 0
+        return 2
 
     text = format_report(summary, (os.environ.get("HEALTH_REPORT_STYLE") or "").lower())
     print(text)
@@ -236,7 +243,7 @@ def main() -> int:
     token, chat = telegram_token(), os.environ.get("HEALTH_TG_CHAT", "8669227844")
     if not token or not chat:
         print("\n텔레그램 자격 미설정 — 발송 생략(문안만 출력).")
-        return 0
+        return 2
 
     send_telegram(text, token, chat)
     print("\n텔레그램 발송 완료.")
