@@ -30,12 +30,11 @@ command -v "$CLAUDE_BIN" >/dev/null 2>&1 || { log "no claude: $CLAUDE_BIN"; exit
 GW="$(docker ps --filter name=openclaw-gateway --format '{{.Names}}' | head -1)"
 # 컨테이너 안 CLI 는 게이트웨이에 이미 인증됨 → message send 는 토큰 불필요(--token 옵션 없음, 2026-06-18 실측).
 
-# 게이트웨이 경유 텔레그램 송신. $1=target $2=message
-# ★ 재시도 없음(단발). 게이트웨이가 바쁘면 message send 가 'gateway timeout after 10000ms' 로 non-zero 를
-#   내지만 메시지는 *이미 전달*됐을 수 있다 → 재시도하면 중복(2026-06-18 4중복 사고). 그래서 timeout 은
-#   '모호=전달됐을 수도' 로 보고 재시도 안 한다. 성공 판정은 exit code 가 아니라 --json 의 ok:true 로.
+# 게이트웨이 경유 텔레그램 송신 1회. $1=target $2=message
+# 성공 판정은 exit code 가 아니라 --json 의 ok:true 로 한다 — 게이트웨이가 바쁘면
+# 'gateway timeout after 10000ms' 로 non-zero 를 내면서도 메시지는 이미 전달됐을 수 있다.
 # target 은 bare·telegram: 프리픽스 둘 다 허용.
-send_tg(){
+send_tg_once(){
   local target="$1" msg="$2" out
   [ -n "$GW" ] || { log "no gateway — cannot send"; return 1; }
   msg="${msg:0:3500}"   # 텔레그램 길이 안전 컷
@@ -45,8 +44,25 @@ send_tg(){
     log "sent ok: $(printf '%s' "$out" | grep -o '\"messageId\"[^,}]*' | head -1)"
     return 0
   fi
-  # 모호한 실패(timeout 등): 재전송 시 중복되므로 재시도 금지. 전달됐을 수도 있음.
-  log "send unconfirmed (NOT retrying to avoid duplicates): ${out:0:120}"
+  log "send unconfirmed: ${out:0:120}"
+  return 1
+}
+
+# 송신 + **1회만** 재시도. $1=target $2=message
+#
+# ★ 두 실패 모드를 저울질한 결과다.
+#   · 무재시도(2026-06-18~06-22 판): timeout 을 '전달됐을 수도' 로 보고 포기 → 실측 3건 중 2건이
+#     조용히 유실. 사용자에겐 "🧠 물어보는 중" 만 남고 답이 영영 안 온다(2026-08-05 규명).
+#   · 무한재시도: 2026-06-18 4중복 사고. 전달됐는데 확인만 실패한 경우 같은 답이 여러 번 간다.
+#   → 그래서 **최대 2통, 그 이상은 절대 없음**. 재전송분은 '(재전송)' 접두를 달아 중복이 생기더라도
+#     사용자가 즉시 알아보게 한다 — 보이는 중복이 조용한 유실보다 낫다.
+SEND_RETRY_WAIT="${ASK_BRAIN_SEND_RETRY_WAIT:-20}"
+send_tg(){
+  local target="$1" msg="$2"
+  send_tg_once "$target" "$msg" && return 0
+  log "send retry in ${SEND_RETRY_WAIT}s (1회만)"
+  sleep "$SEND_RETRY_WAIT"
+  send_tg_once "$target" "(재전송) $msg" && return 0
   return 1
 }
 
@@ -80,8 +96,24 @@ for job in "$QDIR"/*.json; do
   rm -f "$tmp"
   [ -n "$ANS" ] || ANS="죄송합니다 — 질문 처리에 실패했습니다(호스트 로그 확인)."
 
+  # ── 답을 먼저 디스크에 남긴다(발송보다 앞) ──
+  # 발송이 실패하면 답이 메모리에서 사라져 vault 검색·추론이 통째로 헛일이 됐다(구 동작).
+  # 이제 답은 항상 남으므로, 발송이 끝내 안 되더라도 손으로 건져 보낼 수 있다.
+  jid="$(basename "$job" .json)"
+  { printf '# %s\n\n**질문**: %s\n\n**대상**: %s\n\n---\n\n%s\n' \
+      "$jid" "$Q" "${T:-<none>}" "$ANS"; } >"$DONE/$jid.answer.md" 2>/dev/null || true
+
   if [ -n "$T" ]; then
-    send_tg "$T" "$ANS" && log "sent ok (target=$T)" || log "send FAIL (target=$T)"
+    if send_tg "$T" "$ANS"; then
+      log "sent ok (target=$T)"
+      rm -f "$DONE/$jid.unsent"
+    else
+      # 미전송 표식 — 아침 점검이 이걸 세서 '조용한 유실'을 표면화한다.
+      # 자동 재전송은 여기서 끝(최대 2통 규칙). 남은 처리는 사람이 판단한다.
+      printf '%s\ttarget=%s\tanswer=%s\n' "$(date -Is)" "$T" "$DONE/$jid.answer.md" \
+        >"$DONE/$jid.unsent"
+      log "send FAIL (target=$T) — 답 보존: $DONE/$jid.answer.md"
+    fi
   else
     log "no reply target — answer logged only: ${ANS:0:200}"
   fi

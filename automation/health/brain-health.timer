@@ -1,0 +1,16 @@
+[Unit]
+Description=2nd-brain 아침 헬스체크 — 매일 1회
+
+[Timer]
+# 06:40 KST. 시스템 TZ(Asia/Seoul) 기준 — radsafety 아침 보고(06:30)와 10분 어긋나게 둬
+# 두 보고가 같은 순간에 겹쳐 도착하지 않게 한다.
+# (systemd 는 인라인 주석 미지원 — 주석은 반드시 별도 줄.)
+OnCalendar=*-*-* 06:40:00
+# 켜져 있지 않았던 아침을 건너뛰지 않는다 — kimbi 는 24/7 이 아니므로,
+# 부팅 직후에라도 한 번 돌아야 "어제 보고가 없었다"가 침묵이 아닌 정보가 된다.
+Persistent=true
+# 여러 타이머가 같은 순간에 몰리지 않도록 최대 2분 분산.
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
