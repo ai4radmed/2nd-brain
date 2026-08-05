@@ -310,12 +310,14 @@ if [ "$ACTIVITY" -gt 0 ]; then
   if [ -n "$FAIL_REASON" ]; then
     EXTRA_ARGS+=(--fail-reason "$FAIL_REASON")
   fi
+  ENGINE_LABEL="Gemini"
+  [ "${USE_GEMINI_FIRST:-1}" = "0" ] && ENGINE_LABEL="Claude"
   BRAINIFY_PY="$BRAINIFY_PY" \
   BRAIN_DRAIN_TG_TOKEN="${BRAIN_DRAIN_TG_TOKEN:-}" BRAIN_DRAIN_TG_CHAT="$TG_CHAT" \
   OPENCLAW_JSON="$OPENCLAW_JSON" \
   python3 "$(dirname "${BASH_SOURCE[0]}")/drain-report.py" \
     --refine "$REFINED_N" --brainify "$BRAINIFIED_N" --renote "$RENOTED_N" \
-    --fail "$FAIL_N" --budget "$BUDGET_HIT" --mode "2분 무인 드레인" "${EXTRA_ARGS[@]}" \
+    --fail "$FAIL_N" --budget "$BUDGET_HIT" --mode "2분 무인 드레인" --engine "$ENGINE_LABEL" "${EXTRA_ARGS[@]}" \
     >>"$LOG" 2>&1 || log "tg: report failed (non-fatal — 드레인 결과는 유효)"
   log "tg: report sent (refine=$REFINED_N brainify=$BRAINIFIED_N renote=$RENOTED_N fail=$FAIL_N budget=$BUDGET_HIT)"
 fi

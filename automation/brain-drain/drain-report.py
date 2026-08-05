@@ -104,8 +104,7 @@ def build_items(refine: int, brainify: int, renote: int, fail: int, budget_hit: 
     return items
 
 
-def format_report(items: list[dict], now: datetime, mode: str = "2분 무인 드레인") -> str:
-    host = socket.gethostname()
+def format_report(items: list[dict], now: datetime, mode: str = "2분 무인 드레인", engine: str = "Gemini") -> str:
     total = len(items)
     for i, it in enumerate(items, 1):
         it["no"] = f"{it['g']}-{i}"
@@ -114,17 +113,18 @@ def format_report(items: list[dict], now: datetime, mode: str = "2분 무인 드
     warn_n = len(problems) - fail_n
     ok = total - len(problems)
 
-    mode_prefix = f"[{mode}] " if mode else ""
+    mode_prefix = f"[{mode}]" if mode else ""
+    engine_str = f" · {engine}" if engine else ""
 
     if not problems:
-        head = f"{mode_prefix}2nd-brain({host}) 드레인 모든 항목 정상 ({total}/{total})"
+        head = f"{mode_prefix} 모든 항목 정상 ({total}/{total}){engine_str}"
     else:
         parts = []
         if fail_n:
             parts.append(f"문제 {fail_n}건")
         if warn_n:
             parts.append(f"경고 {warn_n}건")
-        head = f"{mode_prefix}2nd-brain({host}) 드레인 {' · '.join(parts)} ({ok}/{total} 정상)"
+        head = f"{mode_prefix} {' · '.join(parts)} ({ok}/{total} 정상){engine_str}"
 
     lines = [head, now.astimezone(KST).strftime("%Y-%m-%d %H:%M KST")]
 
@@ -180,13 +180,14 @@ def main() -> int:
     ap.add_argument("--fail-reason", type=str, default="", help="처리 실패 상세 사유")
     ap.add_argument("--budget", type=int, default=0, help="1=예산상한 도달")
     ap.add_argument("--mode", type=str, default="2분 무인 드레인", help="실행 모드 라벨")
+    ap.add_argument("--engine", type=str, default="Gemini", help="사용 AI 엔진 이름")
     ap.add_argument("--no-send", action="store_true", help="문안만 출력(발송 안 함)")
     a = ap.parse_args()
 
     low_n, low_names, missing_n, low_ok = collect_low()
     items = build_items(a.refine, a.brainify, a.renote, a.fail, bool(a.budget),
                         low_n, low_names, missing_n, low_ok, a.fail_reason)
-    text = format_report(items, datetime.now(timezone.utc), a.mode)
+    text = format_report(items, datetime.now(timezone.utc), a.mode, a.engine)
     print(text)
 
     if a.no_send:
