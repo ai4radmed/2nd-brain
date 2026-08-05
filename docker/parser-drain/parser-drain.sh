@@ -132,7 +132,19 @@ AUDIO_INGRESS="${AUDIO_INGRESS:-$HOME/phone-ingress/voice}"
 AUDIO_REFINE="$REPO/docker/parser-drain/audio_refine.py"
 AUDIO_LEDGER="${AUDIO_LEDGER:-$HOME/.local/state/audio-ingress.ledger}"
 
+MEET_INGRESS="$REPO/docker/parser-drain/drive_meet_ingress.py"
+
 if [ -x "$AUDIO_VENV/bin/python" ]; then
+  # ⓪ Drive ingress — Google Meet 녹화(mp4) → inbox. DRIVE_ACCOUNT 미설정 머신은
+  #    스크립트가 스스로 skip(오디오 venv 어댑터와 같은 device-adaptive 규약).
+  if [ -n "${DRIVE_ACCOUNT:-}" ] && [ -f "$MEET_INGRESS" ]; then
+    if python3 "$MEET_INGRESS" >>"$LOG" 2>&1; then
+      log "ingress(meet): ok"
+    else
+      log "WARN meet ingress 일부 실패 (로그 참조)"
+    fi
+  fi
+
   # ① ingress → inbox 복사 (brainify 가 inbox 밖으로 옮겨도 ledger 가 재복사 방지)
   if [ -d "$AUDIO_INGRESS" ]; then
     touch "$AUDIO_LEDGER"
@@ -152,9 +164,12 @@ if [ -x "$AUDIO_VENV/bin/python" ]; then
 
   # ② inbox 전사 — 미처리분 모아 1회 호출(모델 1회 로드). 멱등: refined.md 있으면 skip.
   pending=()
+  # 비디오(mp4·mkv·webm)도 같은 레인 — faster-whisper 가 PyAV 로 오디오 트랙을
+  # 직접 디코드하므로 별도 추출(ffmpeg) 불필요. Meet 녹화가 여기로 들어온다.
   for f in "$INBOX"/**/*.m4a "$INBOX"/**/*.mp3 "$INBOX"/**/*.wav \
            "$INBOX"/**/*.ogg "$INBOX"/**/*.opus "$INBOX"/**/*.aac \
-           "$INBOX"/**/*.amr; do
+           "$INBOX"/**/*.amr "$INBOX"/**/*.mp4 "$INBOX"/**/*.mkv \
+           "$INBOX"/**/*.webm; do
     [[ "$f" == *_parse/* ]] && continue
     [ -s "${f}_parse/refined.md" ] && continue
     pending+=("$f")

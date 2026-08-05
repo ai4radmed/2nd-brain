@@ -76,6 +76,7 @@
 - **device-adaptive — venv 존재가 어댑터.** 동기 자산에 머신 키워드를 박지 않는다: whisper venv 있는 머신만 루프 실행(GPU 점유 노트북 등은 자동 skip). 모델·디바이스는 env(`WHISPER_MODEL`/`WHISPER_DEVICE`/`WHISPER_COMPUTE`)로 주입, CUDA 실패 시 CPU int8 자동 폴백.
 - **ingress 규약**: SyncThing receive-only 폴더(`~/phone-ingress/voice`, 기본값 — `AUDIO_INGRESS` env)에서 **move 금지**(SyncThing 이 복원) → **copy + ledger**(`~/.local/state/audio-ingress.ledger`, `이름:크기` 키 — brainify 가 inbox 밖으로 옮겨도 재복사 안 함). 복사 시 공백→`_` 정규화.
 - **선별 게이트**: 동기·전사까지 *자동*(로컬이라 안전), **PARA 편입은 brainify 실행(=Dr. Ben 지시) 시점** — 사적 녹음은 그때 삭제.
+- **Meet 녹화 레인 (2026-08-03 추가)**: 폰 ingress 옆에 **Drive ingress** 를 둔다 — 회의 녹화(Google Meet)는 주최자 Drive `Meet Recordings` 에 자동 저장되므로, `drive_meet_ingress.py` 가 그 폴더를 훑어 inbox 로 내린다(fileId ledger 멱등). 전사·편입은 기존 오디오 레인이 그대로 처리 — **경계는 "Drive→inbox" 까지**. 어댑터는 `DRIVE_ACCOUNT` env(미설정 머신은 skip, venv 어댑터와 동일 규약). **비디오(mp4·mkv·webm)를 오디오 루프 확장자에 편입** — faster-whisper 가 PyAV 로 오디오 트랙을 직접 디코드하므로 ffmpeg 추출 단계는 불필요. 파일명은 vault frontmatter `meet_link:` 역인덱스로 회의 코드→회의체를 풀어 `YYYY-MM-DD_<회의체>_녹화.mp4` 로 정규화(매핑 실패 시 코드 그대로 — 유입은 막지 않음).
 - **상태 (2026-07-13)**: ✅ kimbi 구현·검증 완료 — RTX 5080(Blackwell sm_120)에서 CTranslate2 4.8.1 정상, 한국어 테스트(의학 용어 포함) 전사 무결, ingress→inbox→refined.md 드레인 end-to-end 통과. 잔여: 폰 Syncthing-Fork 페어링(Dr. Ben), 실녹음 1건 end-to-end.
 
 ## 관련
