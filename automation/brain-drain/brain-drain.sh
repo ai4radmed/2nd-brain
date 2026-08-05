@@ -181,6 +181,27 @@ PY
   log "claude ok (\$$cost, ${turns}t, run=\$$SPENT): $prompt"; return 0
 }
 
+# 무인 드레인 실행 엔진 (Gemini 우선 모드 = 토큰 소모 0)
+# USE_GEMINI_FIRST=1 (기본값) -> Gemini CLI 우선 1차 시도 후 필요시 Claude fallback
+USE_GEMINI_FIRST="${USE_GEMINI_FIRST:-1}"
+
+engine_run() {
+  local prompt="$1" cap="$2"
+  if [ "$USE_GEMINI_FIRST" = "1" ]; then
+    log "engine_run (Gemini 우선): $prompt"
+    if gemini_run "$prompt"; then
+      return 0
+    else
+      log "gemini 시도 실패/미지원 -> Claude fallback: $prompt"
+      claude_run "$prompt" "$cap"
+      return $?
+    fi
+  else
+    claude_run "$prompt" "$cap"
+    return $?
+  fi
+}
+
 # ── Phase R: refine ──
 # 스캔 범위 = sources 전체(2026-08-05). 예전엔 기본값(00_inbox)만 봐서, PARA 로 분류돼 인박스를
 # 떠난 자료의 _parse 는 영원히 refine 되지 않았다 — 실측 결과 그렇게 묶인 게 72건이었는데
@@ -196,7 +217,7 @@ while IFS=$'\t' read -r action pdir; do
       if python3 "$REFINE_PY" promote "$pdir" >>"$LOG" 2>&1; then log "promote ok: $pdir"; REFINED_N=$((REFINED_N+1))
       else log "promote FAIL: $pdir"; FAIL_N=$((FAIL_N+1)); fi ;;
     refine)
-      claude_run "/refine --headless \"$pdir\"" "$CAP_REFINE" && rc=0 || rc=$?
+      engine_run "/refine --headless \"$pdir\"" "$CAP_REFINE" && rc=0 || rc=$?
       # 사후 커밋 검증(2026-07-16): 작업을 끝내고 종료만 비정상인 false-fail 억제 —
       # refined.md 가 생겼으면 완료로 재집계 (실사례: 커밋 후 rc=1 로 죽어 '⚠ 실패' 오보고)
       if [ "${rc:-1}" = 1 ] && { [ -f "$pdir/refined.md" ] || [ -f "$SB_DATA/$pdir/refined.md" ]; }; then
@@ -221,7 +242,7 @@ PY
 brainify_json="$(python3 "$BRAINIFY_PY" scan 2>>"$LOG" || echo '{}')"
 while IFS= read -r item; do
   [ -z "$item" ] && continue
-  claude_run "/brainify --headless \"$item\"" "$CAP_BRAINIFY" && rc=0 || rc=$?
+  engine_run "/brainify --headless \"$item\"" "$CAP_BRAINIFY" && rc=0 || rc=$?
   # 사후 커밋 검증(2026-07-16): false-fail '⚠ 실패' 텔레그램 오보고 억제.
   # ① 인박스에서 사라짐(이동 커밋) ② 남아 있어도 scan 이 already_brainified 판정(노트 커밋)
   # — 어느 쪽이든 작업은 끝났고 종료만 비정상이었던 것 → 완료로 재집계.
@@ -260,7 +281,7 @@ PY
 while IFS= read -r note; do
   [ -z "$note" ] && continue
   [ "$(budget_left)" = 1 ] || { BUDGET_HIT=1; log "budget hit — renote 중단"; break; }
-  claude_run "/brainify --headless --renote \"$note\"" "$CAP_BRAINIFY" && rc=0 || rc=$?
+  engine_run "/brainify --headless --renote \"$note\"" "$CAP_BRAINIFY" && rc=0 || rc=$?
   # 사후 검증: renote-write 가 남기는 renoted: 마커가 생겼으면 완료(종료만 비정상인 false-fail 억제).
   if [ "${rc:-1}" = 1 ] && grep -q "^renoted:" "$SB_DATA/$note" 2>/dev/null; then
     log "post-check: renoted 마커 존재 — 완료(비정상 종료)로 재집계: $note"; rc=0
