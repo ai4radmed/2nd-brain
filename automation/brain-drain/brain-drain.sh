@@ -49,7 +49,7 @@ command -v "$CLAUDE_BIN" >/dev/null 2>&1 || { log "no claude: $CLAUDE_BIN"; exit
 
 SPENT="0"
 FAIL_REASON=""
-REFINED_N=0; BRAINIFIED_N=0; RENOTED_N=0; FAIL_N=0; BUDGET_HIT=0   # 활동 카운터(끝에서 Telegram 보고 판단)
+REFINED_N=0; BRAINIFIED_N=0; RENOTED_N=0; PRUNED_N=0; FAIL_N=0; BUDGET_HIT=0   # 활동 카운터(끝에서 Telegram 보고 판단)
 budget_left(){ python3 -c "import sys;print(1 if float('$SPENT')<float('$CAP_GLOBAL') else 0)"; }
 
 gemini_run(){
@@ -298,13 +298,25 @@ for it in d.get("items", []):
         print(it["note"])
 ')
 
+# ── Phase D: prune-inbox — 편입 끝났는데 남은 중복 재캡처 정리 (2026-08-06 신설) ──
+# 같은 스레드가 다시 캡처되면 Phase B 는 already_brainified 로 **건너뛰기만** 하고 치우지
+# 않아 인박스가 조용히 불어난다(실측: 13개 중 4개가 잔재). 결정형이라 LLM·예산과 무관.
+# 삭제 게이트는 brainify.py cmd_prune_inbox 주석 참조 — 내용 해시가 완전히 같을 때만 지운다.
+prune_json="$(python3 "$BRAINIFY_PY" prune-inbox 2>>"$LOG" || echo '{}')"
+PRUNED_N="$(printf '%s' "$prune_json" | python3 -c "
+import json,sys
+try: print(json.load(sys.stdin).get('removed',0))
+except Exception: print(0)
+" 2>/dev/null || echo 0)"
+[ "${PRUNED_N:-0}" -gt 0 ] 2>/dev/null && log "prune-inbox: ${PRUNED_N}건 정리(내용 해시 동일 잔재)"
+
 log "=== brain-drain done (run=\$$SPENT) ==="
 
 # ── 활동 보고 (Telegram) — 처리한 항목이 있을 때만. 빈 실행(inbox 0)은 침묵 → 스팸 없음 ──
 # 문안 생성·발송은 drain-report.py 가 전담한다(2026-08-05). 이 보고와 아침 brain-health 보고가
 # 같은 방에 섞여 오므로 문법을 통일했다 — 번호식·무이모지·줄끝 [o]/[!]/[x]. 규약 원본은
 # automation/health/health-report.py 의 docstring.
-ACTIVITY=$((REFINED_N + BRAINIFIED_N + RENOTED_N + FAIL_N))
+ACTIVITY=$((REFINED_N + BRAINIFIED_N + RENOTED_N + PRUNED_N + FAIL_N))
 if [ "$ACTIVITY" -gt 0 ]; then
   EXTRA_ARGS=()
   if [ -n "$FAIL_REASON" ]; then
@@ -316,7 +328,7 @@ if [ "$ACTIVITY" -gt 0 ]; then
   BRAIN_DRAIN_TG_TOKEN="${BRAIN_DRAIN_TG_TOKEN:-}" BRAIN_DRAIN_TG_CHAT="$TG_CHAT" \
   OPENCLAW_JSON="$OPENCLAW_JSON" \
   python3 "$(dirname "${BASH_SOURCE[0]}")/drain-report.py" \
-    --refine "$REFINED_N" --brainify "$BRAINIFIED_N" --renote "$RENOTED_N" \
+    --refine "$REFINED_N" --brainify "$BRAINIFIED_N" --renote "$RENOTED_N" --prune "$PRUNED_N" \
     --fail "$FAIL_N" --budget "$BUDGET_HIT" --mode "2분 무인 드레인" --engine "$ENGINE_LABEL" "${EXTRA_ARGS[@]}" \
     >>"$LOG" 2>&1 || log "tg: report failed (non-fatal — 드레인 결과는 유효)"
   log "tg: report sent (refine=$REFINED_N brainify=$BRAINIFIED_N renote=$RENOTED_N fail=$FAIL_N budget=$BUDGET_HIT)"

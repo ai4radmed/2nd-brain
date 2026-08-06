@@ -66,7 +66,7 @@ def collect_low() -> tuple[int, list[str], int, bool]:
         return 0, [], 0, False
 
 
-def build_items(refine: int, brainify: int, renote: int, fail: int, budget_hit: bool,
+def build_items(refine: int, brainify: int, renote: int, prune: int, fail: int, budget_hit: bool,
                 low_n: int, low_names: list[str], missing_n: int, low_ok: bool,
                 fail_reason: str = "") -> list[dict]:
     """(그룹번호, 제목, 항목들) 을 평평한 리스트로. 항목 = {group, label, status, extra}."""
@@ -77,6 +77,8 @@ def build_items(refine: int, brainify: int, renote: int, fail: int, budget_hit: 
         {"g": 1, "gt": "처리 결과", "label": f"정제(refine) {refine}건", "status": "ok"},
         {"g": 1, "gt": "처리 결과", "label": f"편입(brainify) {brainify}건", "status": "ok"},
         {"g": 1, "gt": "처리 결과", "label": f"재작성(renote) {renote}건", "status": "ok"},
+        # 인박스 잔재 정리는 **비가역 삭제**라 0건이어도 항상 한 줄 낸다 — 조용히 지우지 않는다.
+        {"g": 1, "gt": "처리 결과", "label": f"인박스 잔재 정리 {prune}건", "status": "ok"},
         {"g": 1, "gt": "처리 결과",
          "label": fail_label, "status": "fail" if fail else "ok"},
         {"g": 1, "gt": "처리 결과",
@@ -176,6 +178,7 @@ def main() -> int:
     ap.add_argument("--refine", type=int, default=0)
     ap.add_argument("--brainify", type=int, default=0)
     ap.add_argument("--renote", type=int, default=0)
+    ap.add_argument("--prune", type=int, default=0, help="인박스 중복 잔재 삭제 건수")
     ap.add_argument("--fail", type=int, default=0)
     ap.add_argument("--fail-reason", type=str, default="", help="처리 실패 상세 사유")
     ap.add_argument("--budget", type=int, default=0, help="1=예산상한 도달")
@@ -185,7 +188,7 @@ def main() -> int:
     a = ap.parse_args()
 
     low_n, low_names, missing_n, low_ok = collect_low()
-    items = build_items(a.refine, a.brainify, a.renote, a.fail, bool(a.budget),
+    items = build_items(a.refine, a.brainify, a.renote, a.prune, a.fail, bool(a.budget),
                         low_n, low_names, missing_n, low_ok, a.fail_reason)
     text = format_report(items, datetime.now(timezone.utc), a.mode, a.engine)
     print(text)

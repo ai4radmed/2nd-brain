@@ -102,6 +102,11 @@ candidates(){
 HWP_REFINE="$REPO/docker/parser-drain/hwp_refine.py"
 while IFS= read -r f; do
   backlog_stop "$f" && { log "cap($MAX_PER_RUN) 도달 — hwp 백로그 중단"; break; }
+  # 후보 목록은 런 시작에 한 번 만들어진다 — 그 사이 brainify·prune 이 원본을 옮기거나
+  # 지웠을 수 있다. 확인 없이 진행하면 아래 `mkdir -p "$out"` 가 **사라진 폴더를 되살려**
+  # 빈 `_parse/` + `.parse-error` 껍데기를 남긴다(2026-08-06 실측: prune 으로 지운 인박스
+  # 폴더 2개가 2분 만에 유령으로 부활). 인박스 적체 숫자를 오염시키는 유령의 출처였다.
+  [ -f "$f" ] || { log "원본 사라짐(다른 단계가 이동·삭제) — skip: $f"; continue; }
   out="${f}_parse"
   [ -s "$out/refined.md" ] && continue           # 멱등
   skip_failed "$out" && { ferr=$((ferr+1)); continue; }
@@ -116,6 +121,11 @@ done < <(candidates hwp hwpx)
 # ── PDF·docx·xlsx: 컨테이너(2nd-brain-parser) 경로 ──
 while IFS= read -r f; do
   backlog_stop "$f" && { log "cap($MAX_PER_RUN) 도달 — pdf/docx/xlsx 백로그 중단"; break; }
+  # 후보 목록은 런 시작에 한 번 만들어진다 — 그 사이 brainify·prune 이 원본을 옮기거나
+  # 지웠을 수 있다. 확인 없이 진행하면 아래 `mkdir -p "$out"` 가 **사라진 폴더를 되살려**
+  # 빈 `_parse/` + `.parse-error` 껍데기를 남긴다(2026-08-06 실측: prune 으로 지운 인박스
+  # 폴더 2개가 2분 만에 유령으로 부활). 인박스 적체 숫자를 오염시키는 유령의 출처였다.
+  [ -f "$f" ] || { log "원본 사라짐(다른 단계가 이동·삭제) — skip: $f"; continue; }
   out="${f}_parse"
   ext="${f##*.}"; ext="${ext,,}"
   cpath="${f/#$SB_DATA/$CMNT}"          # host→컨테이너 입력 경로
@@ -159,6 +169,11 @@ done < <(candidates pdf docx xlsx)
 # 안 그러면 추출 figure 를 재-OCR 하는 무한 증식. 멱등: ocr.json 있으면 skip.
 while IFS= read -r f; do
   backlog_stop "$f" && { log "cap($MAX_PER_RUN) 도달 — 이미지 백로그 중단"; break; }
+  # 후보 목록은 런 시작에 한 번 만들어진다 — 그 사이 brainify·prune 이 원본을 옮기거나
+  # 지웠을 수 있다. 확인 없이 진행하면 아래 `mkdir -p "$out"` 가 **사라진 폴더를 되살려**
+  # 빈 `_parse/` + `.parse-error` 껍데기를 남긴다(2026-08-06 실측: prune 으로 지운 인박스
+  # 폴더 2개가 2분 만에 유령으로 부활). 인박스 적체 숫자를 오염시키는 유령의 출처였다.
+  [ -f "$f" ] || { log "원본 사라짐(다른 단계가 이동·삭제) — skip: $f"; continue; }
   out="${f}_parse"
   ext="${f##*.}"; ext="${ext,,}"
   cpath="${f/#$SB_DATA/$CMNT}"               # host→컨테이너 입력 경로
