@@ -51,6 +51,7 @@ SERVICES = os.environ.get("HEALTH_SERVICES", "brain-drain.service parser-drain.s
 
 INBOX_WARN = int(os.environ.get("HEALTH_INBOX_WARN", "20"))       # 인박스 적체 경고 임계
 VAULT_STALE_DAYS = int(os.environ.get("HEALTH_VAULT_STALE_DAYS", "7"))
+HOLD_STALE_DAYS = int(os.environ.get("HEALTH_HOLD_STALE_DAYS", "7"))   # _hold 방치 경고 임계(일)
 DISK_WARN_PCT = int(os.environ.get("HEALTH_DISK_WARN_PCT", "10"))  # 여유 %
 REFRESH_WARN_DAYS = int(os.environ.get("HEALTH_REFRESH_WARN_DAYS", "7"))
 # 라이브 인증 검증(실제 1턴 호출). doctor·auth status 는 라이브 검증을 하지 않으므로
@@ -357,6 +358,25 @@ def check_hostauto() -> Section:
         return "fail", f"{len(pend)}건 미전송 (최근 {age_h:.1f}시간 전) — {done}/*.answer.md 에 답 보존됨"
 
     s.probe("ask-brain 회신 미전송", _unsent)
+
+    # `_hold` 대기실 — 드레인이 **일부러 안 보는** 폴더라 아무도 알려주지 않는다.
+    # 넣어두고 지시를 잊으면 그대로 사장된다(ask-brain 이 6주간 조용히 죽어 있던 것과 같은 함정:
+    # 자동화를 끈 자리는 그 사실 자체가 보고돼야 한다). 그래서 여기서 나이를 본다.
+    def _hold():
+        hold = INBOX / "_hold"
+        if not hold.is_dir():
+            return "ok", "(없음)"
+        # README.md 는 대기실 사용법 안내라 영구 거주자다 — 적체로 세면 7일 뒤 상시 경고가 된다.
+        items = [p for p in hold.iterdir()
+                 if not p.name.startswith(".") and p.name != "README.md"]
+        if not items:
+            return "ok", ""
+        oldest = min(p.stat().st_mtime for p in items)
+        days = (time.time() - oldest) / 86400
+        # 하루 이틀은 정상(지시 대기). 일주일 넘으면 잊힌 것으로 본다.
+        return ("warn" if days > HOLD_STALE_DAYS else "ok"), f"{len(items)}건 (가장 오래된 것 {days:.1f}일 전)"
+
+    s.probe("인박스 _hold 대기", _hold)
     return s
 
 

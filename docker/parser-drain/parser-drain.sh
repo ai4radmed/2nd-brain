@@ -110,12 +110,15 @@ skip_failed(){ [ -e "$1/.parse-error" ] && [ "${PARSER_DRAIN_RETRY_ERRORS:-0}" !
 # 후보 경로 나열. $@ = 확장자들. 인박스분을 먼저, 그다음 sources 전체(중복은 dedup).
 # 파싱 산출물 내부(`*_parse/`)는 여기서 일괄 제외 — mineru 가 뽑아 둔 figure 이미지를 다시
 # OCR 하는 무한 증식을 막는다(예전엔 이미지 루프에만 있던 가드를 전 루프로 올림).
+# `00_inbox/_hold/` 도 제외 — Dr. Ben 이 손으로 떨어뜨리고 **지시할 때까지 기다리는** 대기실이다.
+# 파싱은 무해해 보이지만 _parse 산출물이 먼저 생기면 대기실이 "이미 처리 중"처럼 보이고,
+# 무엇보다 복사가 끝나기 전 파일을 집어 잘린 사본을 파싱할 수 있다. 손 자료는 지시 후에만 만진다.
 candidates(){
   local ext f
   {
     for ext in "$@"; do for f in "$INBOX"/**/*."$ext"; do printf '%s\n' "$f"; done; done
     for ext in "$@"; do for f in "$SOURCES_ROOT"/**/*."$ext"; do printf '%s\n' "$f"; done; done
-  } | grep -v '_parse/' | awk '!seen[$0]++'
+  } | grep -v '_parse/' | grep -v "^${INBOX}/_hold/" | awk '!seen[$0]++'
 }
 
 # ── HWP/HWPX: 호스트-측 추출(컨테이너 우회) → refined.md 직접 생산 ──
