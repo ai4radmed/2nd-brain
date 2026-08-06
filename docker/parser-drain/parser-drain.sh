@@ -34,15 +34,39 @@ COMPOSE=(docker compose ${CF[*]})
 trap '"${COMPOSE[@]}" down >>"$LOG" 2>&1 || true' EXIT
 
 # 엔진 1회 실행 → host 파일로 atomic 기록. $1=host출력, $2..=parser CLI 인자(컨테이너 경로)
+# 실패 시 마지막 오류 줄을 LAST_ERR 에 담는다 — 마커에 사유를 남기기 위해서다(아래 mark_error).
+LAST_ERR=""
 run_to(){
   local out="$1"; shift
-  local tmp="$out.tmp"
-  if timeout "$ENGINE_TIMEOUT" docker exec 2nd-brain-parser "$PARSER_CLI" "$@" \
-        >"$tmp" 2>>"$LOG" && [ -s "$tmp" ]; then
-    mv -f "$tmp" "$out"; return 0
-  fi
-  rm -f "$tmp"; return 1
+  local tmp="$out.tmp" errf rc
+  errf="$(mktemp)"; LAST_ERR=""
+  timeout "$ENGINE_TIMEOUT" docker exec 2nd-brain-parser "$PARSER_CLI" "$@" >"$tmp" 2>"$errf"; rc=$?
+  cat "$errf" >>"$LOG"
+  if [ "$rc" = 0 ] && [ -s "$tmp" ]; then rm -f "$errf"; mv -f "$tmp" "$out"; return 0; fi
+  LAST_ERR="$(grep -aiE 'error|exception|not running|denied' "$errf" | tail -1)"
+  [ -z "$LAST_ERR" ] && LAST_ERR="$(tail -1 "$errf" 2>/dev/null)"
+  [ -z "$LAST_ERR" ] && LAST_ERR="빈 출력(rc=$rc)"
+  # 124 = timeout(1) 이 보낸 종료코드. **파일 결함이 아니라 시간 상한**이라 반드시 구분한다 —
+  # 2026-08-06 실측: 6MB PDF 가 900초 정각에 죽었는데 마커엔 사유가 없어 '파싱 불가'로 오독됐다.
+  [ "$rc" = 124 ] && LAST_ERR="timeout ${ENGINE_TIMEOUT}s | ${LAST_ERR}"
+  LAST_ERR="${LAST_ERR:0:400}"
+  rm -f "$errf" "$tmp"; return 1
 }
+
+# 실패 마커 — 사유·시각·단계를 남긴다. $1=_parse dir  $2=단계  $3=원본 경로
+#
+# 예전엔 `: >"$out/.parse-error"` 로 **빈 파일**만 만들었다. 그래서 마커 26개를 놓고도
+# "왜 실패했나"를 알 수 없어 하나씩 재현해야 했고(2026-08-06), 타임아웃·암호화·인프라 사고가
+# 전부 같은 얼굴이었다. 사유 한 줄이 그 재현 작업을 통째로 없앤다.
+mark_error(){
+  printf 'ts: %s\nhost: %s\nstage: %s\nsource: %s\nreason: %s\n' \
+    "$(date -Is)" "$(hostname)" "$2" "$3" "${LAST_ERR:-(사유 미상)}" >"$1/.parse-error" 2>/dev/null || true
+}
+
+# 성공하면 마커를 지운다. **이 동작이 없었다**(2026-08-06 발견) — 한 번 실패한 파일은 나중에
+# 성공해도 마커가 남아, `.parse-error` 개수가 '현재 미해결'이 아니라 '실패한 적 있는 파일의
+# 누적 명부'였다. 실제로 재시도에서 통과한 4건이 계속 실패로 집계되고 있었다.
+clear_error(){ rm -f "$1/.parse-error" 2>/dev/null || true; }
 
 shopt -s nullglob globstar
 n=0
@@ -112,9 +136,11 @@ while IFS= read -r f; do
   skip_failed "$out" && { ferr=$((ferr+1)); continue; }
   log "parse(hwp,host): $f"; attempt_one "$f"
   if python3 "$HWP_REFINE" "$f" >>"$LOG" 2>&1; then
-    log "ok(hwp,host): $f"; count_one "$f"
+    log "ok(hwp,host): $f"; clear_error "$out"; count_one "$f"
   else
-    log "FAIL hwp(host): $f"                       # hwp_refine 이 .parse-error 마커 기록
+    # hwp_refine 이 마커를 쓰지만 사유가 없다 → 로그 꼬리를 사유로 얹어 덮어쓴다.
+    LAST_ERR="$(tail -3 "$LOG" | tr "\n" " " | tail -c 300)"
+    log "FAIL hwp(host): $f"; mark_error "$out" hwp "$f"
   fi
 done < <(candidates hwp hwpx)
 
@@ -141,11 +167,11 @@ while IFS= read -r f; do
   # docling (전 포맷; 이미 있으면 재사용)
   if [ ! -s "$out/docling.json" ]; then
     run_to "$out/docling.json" parse-docling "$cpath" \
-      || { log "FAIL docling: $f"; : >"$out/.parse-error"; continue; }
+      || { log "FAIL docling: $f — $LAST_ERR"; mark_error "$out" docling "$f"; continue; }
   fi
 
   if [ "$ext" != pdf ]; then
-    log "ok(single non-PDF): $f"; count_one "$f"; continue
+    log "ok(single non-PDF): $f"; clear_error "$out"; count_one "$f"; continue
   fi
 
   # PDF: mineru (재사용) + diff
@@ -155,12 +181,12 @@ while IFS= read -r f; do
   if [ -s "$out/mineru.json" ] && [ ! -s "$out/diff.json" ]; then
     if run_to "$out/diff.json" diff "$cout/docling.json" "$cout/mineru.json"; then
       v=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('verdict','?'))" "$out/diff.json" 2>/dev/null || echo '?')
-      log "ok(dual,verdict=$v): $f"; count_one "$f"
+      log "ok(dual,verdict=$v): $f"; clear_error "$out"; count_one "$f"
     else
-      log "WARN diff 실패(docling+mineru는 있음): $f"; count_one "$f"
+      log "WARN diff 실패(docling+mineru는 있음): $f"; clear_error "$out"; count_one "$f"
     fi
   else
-    log "ok(docling-only, mineru 없음): $f"; count_one "$f"
+    log "ok(docling-only, mineru 없음): $f"; clear_error "$out"; count_one "$f"
   fi
 done < <(candidates pdf docx xlsx)
 
@@ -182,9 +208,9 @@ while IFS= read -r f; do
   mkdir -p "$out"
   log "parse(ocr:$ext): $f"; attempt_one "$f"
   if run_to "$out/ocr.json" parse-ocr "$cpath"; then
-    log "ok(ocr): $f"; count_one "$f"
+    log "ok(ocr): $f"; clear_error "$out"; count_one "$f"
   else
-    log "FAIL ocr: $f"; : >"$out/.parse-error"
+    log "FAIL ocr: $f — $LAST_ERR"; mark_error "$out" ocr "$f"
   fi
 done < <(candidates png jpg jpeg webp tiff)
 
