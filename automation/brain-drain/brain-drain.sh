@@ -25,7 +25,7 @@ GEMINI_BIN="${GEMINI_BIN:-$HOME/.nvm/versions/node/v24.15.0/bin/gemini}"
 MODEL="${BRAIN_DRAIN_MODEL:-claude-opus-4-7}"
 CLAUDE_TIMEOUT="${CLAUDE_TIMEOUT:-600}"          # claude 호출당 상한(초)
 CAP_REFINE="${CAP_REFINE:-2.50}"                 # diverge refine 항목당 $ 상한 (2026-07-03: 0.50→1.50→2.50. 대용량 다페이지 한글PDF 비전검증이 $0.9 안팎+스파이크로 $1.5 초과 abort→재시도마다 ~$1.5 헛번. cap 올려 1회 완주가 더 쌈)
-CAP_BRAINIFY="${CAP_BRAINIFY:-1.50}"             # brainify 항목당 토큰-환산 상한 (2026-07-03: 0.75→1.50. refine 과 동일 — 큰 문서 brainify 가 $0.75 코앞이라 순간초과 abort→재시도-번. 값은 토큰×정가 환산, 실결제 아님)
+CAP_BRAINIFY="${CAP_BRAINIFY:-2.50}"             # brainify 항목당 토큰-환산 상한 (2026-07-03: 0.75→1.50. refine 과 동일 — 큰 문서 brainify 가 $0.75 코앞이라 순간초과 abort→재시도-번. 값은 토큰×정가 환산, 실결제 아님)
 CAP_GLOBAL="${CAP_GLOBAL:-50.00}"                # 드레인 1회 누적 토큰-환산 상한 (2026-07-03: 5→50. MAX 요금제는 건당결제 아닌 사용량한도라 달러-스로틀 무의미 → 백필 가속. 한 런이 ~50건 소진 후 2분 뒤 재발화=거의 연속. 실결제 아님)
 LOG="${BRAIN_DRAIN_LOG:-$HOME/.local/state/brain-drain.log}"
 mkdir -p "$(dirname "$LOG")"
@@ -42,6 +42,55 @@ automate-first/weekly-audit 정책: 모호하면 묻지 말고 낙관 배치 후
 parse_confidence|refine_confidence: low). 이미 처리된 항목(already_brainified / refined.md 존재)은 skip.
 반드시 helper(refine.py/brainify.py)로 commit 하거나, 사유를 남기고 skip 하며 끝낼 것.'
 
+# ── 모드: --alert-only = 파싱·편입 없이 **현재 포기 목록만** 재발송 ──
+# 원칙: 모든 알림은 자동발화와 1회성 호출 양쪽이 된다(brain-system README §알림 수동 발사).
+# 읽기 전용이라 flock 도 잡지 않는다 — 드레인이 도는 중에도 안전하다.
+if [ "${1:-}" = "--alert-only" ]; then
+  DB="${BRAIN_DRAIN_FAILDB:-$HOME/.local/state/brain-drain-fails.tsv}"
+  BRAIN_DRAIN_TG_CHAT="${BRAIN_DRAIN_TG_CHAT:-8669227844}" \
+  OPENCLAW_JSON="${OPENCLAW_JSON:-$HOME/.openclaw/openclaw.json}" \
+  DBPATH="$DB" HOSTN="$(hostname)" python3 - <<'PYA' | tee -a "$LOG"
+import json, os, sys, urllib.parse, urllib.request, datetime
+from pathlib import Path
+db = Path(os.environ["DBPATH"]); rows = []
+if db.exists():
+    for line in db.read_text(encoding="utf-8").splitlines():
+        f = line.split("\t")
+        if len(f) >= 2 and f[0].strip():
+            rows.append((f[0], f[1], f[3] if len(f) > 3 else ""))
+# 포기(>=MAX)와 재시도 대기(<MAX)를 가른다 — 헬스체크와 같은 기준이어야 두 보고가 안 어긋난다.
+MAXF = int(os.environ.get("BRAIN_DRAIN_MAX_FAILS", "2"))
+pending = [r for r in rows if int(r[1]) < MAXF]
+rows = [r for r in rows if int(r[1]) >= MAXF]
+now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M KST")
+head = f"[드레인 포기] 누적 {len(rows)}건 · {os.environ['HOSTN']}\n{now}\n\n1. 연속 실패로 중단된 항목"
+tail_note = f"\n\n(재시도 대기 {len(pending)}건 — 아직 포기 아님)" if pending else ""
+if not rows:
+    text = head + "\n1-1. 없음 [o]" + tail_note   # 0건도 보낸다 — 물어본 사람에게 '깨끗하다'가 답이다
+else:
+    lines = [head]
+    for i, (it, cnt, why) in enumerate(rows[:5], 1):
+        lines.append(f"1-{i}. {it[:56]} [x]\n      {cnt}회 실패: {why[:80]}\n      sources/00_inbox/{it}")
+    if len(rows) > 5:
+        lines.append(f"1-6. …외 {len(rows)-5}건 [x]")
+    lines.append("\n재시도: BRAIN_DRAIN_RETRY_FAILED=1 bash automation/brain-drain/brain-drain.sh")
+    text = "\n".join(lines) + tail_note
+tok = os.environ.get("BRAIN_DRAIN_TG_TOKEN") or ""
+if not tok:
+    try:
+        tok = json.loads(Path(os.environ["OPENCLAW_JSON"]).read_text(encoding="utf-8"))["channels"]["telegram"]["botToken"]
+    except Exception:
+        tok = ""
+if not tok:
+    print("tg: no token — skip. 문안:"); print(text); raise SystemExit(0)
+data = urllib.parse.urlencode({"chat_id": os.environ["BRAIN_DRAIN_TG_CHAT"], "text": text,
+                               "disable_web_page_preview": "true"}).encode()
+urllib.request.urlopen(urllib.request.Request(f"https://api.telegram.org/bot{tok}/sendMessage", data=data), timeout=20)
+print(f"tg: --alert-only 포기 {len(rows)}건 발송")
+PYA
+  exit 0
+fi
+
 # ── concurrency=1 (parser-drain 와 별도 락) ──
 exec 9>"/run/user/$(id -u)/brain-drain.lock"
 flock -n 9 || { log "already running, skip"; exit 0; }
@@ -51,6 +100,44 @@ SPENT="0"
 FAIL_REASON=""
 REFINED_N=0; BRAINIFIED_N=0; RENOTED_N=0; PRUNED_N=0; FAIL_N=0; BUDGET_HIT=0   # 활동 카운터(끝에서 Telegram 보고 판단)
 budget_left(){ python3 -c "import sys;print(1 if float('$SPENT')<float('$CAP_GLOBAL') else 0)"; }
+
+# ── 연속 실패 항목 포기 (2026-08-07) ──────────────────────────────────────────
+#
+# 같은 항목이 반복 실패해도 멈추는 장치가 없었다. 실패해도 노트가 안 생기니 인박스에 남고,
+# 2분 뒤 재발화가 **영원히** 같은 항목을 다시 태운다. 실패 1회당 최대 CAP_BRAINIFY(2.50 환산)라
+# 방치하면 하루 수백 환산이 조용히 나간다(2026-08-07: 첨부 hwp 2개 항목이 $1.62 에서 abort →
+# 상한을 올려 2회째에 풀렸지만, 안 풀리는 항목이었다면 그대로 무한 반복이었다).
+#
+# parser-drain 의 `.parse-error` 와 같은 사상 — **실패한 건 다시 안 건드린다**. 다만 인박스 항목은
+# 성공하면 폴더째 이동해 사라지므로 마커를 항목 *안에* 두면 이력이 같이 사라진다. 그래서 밖에 둔다.
+# 재시도는 명시적으로: BRAIN_DRAIN_RETRY_FAILED=1 (상한을 올렸거나 원인을 고친 뒤 일괄 재시도).
+FAILDB="${BRAIN_DRAIN_FAILDB:-$HOME/.local/state/brain-drain-fails.tsv}"
+MAX_FAILS="${BRAIN_DRAIN_MAX_FAILS:-2}"
+GIVEUP=()          # 이번 런에서 **새로** 포기 확정된 항목 (끝에서 한 번에 알린다)
+touch "$FAILDB" 2>/dev/null || true
+
+fail_count(){   # $1=item → 누적 실패 횟수(없으면 0)
+  awk -F'	' -v k="$1" '$1==k{print $2; found=1} END{if(!found) print 0}' "$FAILDB" 2>/dev/null | head -1
+}
+fail_bump(){    # $1=item $2=사유 → 횟수+1 로 갱신, 새 횟수를 stdout
+  local item="$1" why="$2" cur new tmp
+  cur="$(fail_count "$item")"; new=$((cur+1))
+  tmp="$(mktemp)"
+  awk -F'	' -v k="$item" '$1!=k' "$FAILDB" 2>/dev/null >"$tmp" || true
+  printf '%s	%s	%s	%s
+' "$item" "$new" "$(date -Is)" "${why:0:200}" >>"$tmp"
+  mv -f "$tmp" "$FAILDB"
+  printf '%s' "$new"
+}
+fail_clear(){   # $1=item → 성공했으니 대장에서 제거
+  local tmp; tmp="$(mktemp)"
+  awk -F'	' -v k="$1" '$1!=k' "$FAILDB" 2>/dev/null >"$tmp" || true
+  mv -f "$tmp" "$FAILDB"
+}
+fail_giveup(){  # $1=item → 포기 상태인가(재시도 지시가 없을 때만 유효)
+  [ "${BRAIN_DRAIN_RETRY_FAILED:-0}" = 1 ] && return 1
+  [ "$(fail_count "$1")" -ge "$MAX_FAILS" ]
+}
 
 gemini_run(){
   local prompt="$1" gbin
@@ -242,6 +329,10 @@ PY
 brainify_json="$(python3 "$BRAINIFY_PY" scan 2>>"$LOG" || echo '{}')"
 while IFS= read -r item; do
   [ -z "$item" ] && continue
+  # 이미 포기 확정된 항목은 건드리지 않는다(재시도는 BRAIN_DRAIN_RETRY_FAILED=1).
+  if fail_giveup "$item"; then
+    log "skip(포기 $(fail_count "$item")회 실패): $item"; continue
+  fi
   engine_run "/brainify --headless \"$item\"" "$CAP_BRAINIFY" && rc=0 || rc=$?
   # 사후 커밋 검증(2026-07-16): false-fail '⚠ 실패' 텔레그램 오보고 억제.
   # ① 인박스에서 사라짐(이동 커밋) ② 남아 있어도 scan 이 already_brainified 판정(노트 커밋)
@@ -259,7 +350,18 @@ sys.exit(0 if hit and hit.get("already_brainified") else 1)
       log "post-check: already_brainified 판정(노트 커밋) — 완료(비정상 종료)로 재집계: $item"; rc=0
     fi
   fi
-  case "${rc:-1}" in 0) BRAINIFIED_N=$((BRAINIFIED_N+1));; 2) BUDGET_HIT=1;; *) FAIL_N=$((FAIL_N+1));; esac
+  case "${rc:-1}" in
+    0) fail_clear "$item"; BRAINIFIED_N=$((BRAINIFIED_N+1));;
+    2) BUDGET_HIT=1;;   # 드레인 전체 예산 소진 — 항목 잘못이 아니므로 실패로 세지 않는다
+    *) nf="$(fail_bump "$item" "${FAIL_REASON:-brainify 실패(rc=${rc:-1})}")"
+       FAIL_N=$((FAIL_N+1))
+       if [ "$nf" -ge "$MAX_FAILS" ]; then
+         log "포기 확정(${nf}/${MAX_FAILS}회): $item"
+         GIVEUP+=("$item|$nf|${FAIL_REASON:-brainify 실패(rc=${rc:-1})}")
+       else
+         log "실패 ${nf}/${MAX_FAILS}회 — 다음 런에서 재시도: $item"
+       fi;;
+  esac
 done < <(python3 - <<PY
 import json
 AUDIO = (".m4a", ".mp3", ".wav", ".ogg", ".opus", ".aac", ".amr")
@@ -297,6 +399,59 @@ for it in d.get("items", []):
     if it.get("ready"):
         print(it["note"])
 ')
+
+# ── 실패 대장 정리 + 포기 알림 (2026-08-07) ──
+# 인박스에서 사라진 항목(= 결국 편입됐거나 사람이 치운 것)의 줄은 지운다. 안 그러면 대장이
+# 영원히 자라고, 같은 이름이 다시 들어왔을 때 옛 실패 횟수를 물려받아 첫 시도부터 포기한다.
+if [ -s "$FAILDB" ]; then
+  tmpdb="$(mktemp)"
+  while IFS=$'\t' read -r it cnt ts why; do
+    [ -z "$it" ] && continue
+    case "$it" in /*) probe="$it";; *) probe="$SB_DATA/sources/00_inbox/$it";; esac
+    [ -e "$probe" ] && printf '%s\t%s\t%s\t%s\n' "$it" "$cnt" "$ts" "$why" >>"$tmpdb"
+  done <"$FAILDB"
+  mv -f "$tmpdb" "$FAILDB"
+fi
+
+# 포기 확정 즉시 알림 — parser-drain 의 실패 알림과 같은 규약(번호식·무이모지·줄끝 표식).
+if [ "${#GIVEUP[@]}" -gt 0 ]; then
+  gmsg="[드레인 포기] ${#GIVEUP[@]}건 · $(hostname)
+$(date '+%Y-%m-%d %H:%M KST')
+
+1. ${MAX_FAILS}회 연속 실패 — 자동 처리 중단"
+  gi=0
+  for g in "${GIVEUP[@]}"; do
+    gi=$((gi+1))
+    gitem="${g%%|*}"; grest="${g#*|}"; gcnt="${grest%%|*}"; gwhy="${grest#*|}"
+    gmsg="${gmsg}
+1-${gi}. $(printf '%s' "$gitem" | cut -c1-56) [x]
+      ${gcnt}회 실패: $(printf '%s' "$gwhy" | cut -c1-80)
+      sources/00_inbox/${gitem}"
+  done
+  gmsg="${gmsg}
+
+재시도: BRAIN_DRAIN_RETRY_FAILED=1 bash automation/brain-drain/brain-drain.sh"
+  BRAINIFY_PY="$BRAINIFY_PY" BRAIN_DRAIN_TG_TOKEN="${BRAIN_DRAIN_TG_TOKEN:-}" \
+  BRAIN_DRAIN_TG_CHAT="$TG_CHAT" OPENCLAW_JSON="$OPENCLAW_JSON" \
+  python3 - "$gmsg" <<'PYSEND' >>"$LOG" 2>&1 || log "tg: 포기 알림 발송 실패(non-fatal)"
+import json, os, sys, urllib.parse, urllib.request
+from pathlib import Path
+text = sys.argv[1]
+tok = os.environ.get("BRAIN_DRAIN_TG_TOKEN") or ""
+if not tok:
+    try:
+        tok = json.loads(Path(os.environ["OPENCLAW_JSON"]).read_text(encoding="utf-8"))["channels"]["telegram"]["botToken"]
+    except Exception:
+        tok = ""
+if not tok:
+    print("tg: no token — 포기 알림 skip. 문안:"); print(text); raise SystemExit(0)
+data = urllib.parse.urlencode({"chat_id": os.environ.get("BRAIN_DRAIN_TG_CHAT", "8669227844"),
+                               "text": text, "disable_web_page_preview": "true"}).encode()
+urllib.request.urlopen(urllib.request.Request(f"https://api.telegram.org/bot{tok}/sendMessage", data=data), timeout=20)
+print("tg: 포기 알림 발송 완료")
+PYSEND
+  log "포기 알림 ${#GIVEUP[@]}건 발송"
+fi
 
 # ── Phase D: prune-inbox — 편입 끝났는데 남은 중복 재캡처 정리 (2026-08-06 신설) ──
 # 같은 스레드가 다시 캡처되면 Phase B 는 already_brainified 로 **건너뛰기만** 하고 치우지

@@ -52,6 +52,7 @@ SERVICES = os.environ.get("HEALTH_SERVICES", "brain-drain.service parser-drain.s
 INBOX_WARN = int(os.environ.get("HEALTH_INBOX_WARN", "20"))       # 인박스 적체 경고 임계
 VAULT_STALE_DAYS = int(os.environ.get("HEALTH_VAULT_STALE_DAYS", "7"))
 HOLD_STALE_DAYS = int(os.environ.get("HEALTH_HOLD_STALE_DAYS", "7"))   # _hold 방치 경고 임계(일)
+GIVEUP_FAILS = int(os.environ.get("BRAIN_DRAIN_MAX_FAILS", "2"))       # 이 횟수 이상 = 드레인 포기
 DISK_WARN_PCT = int(os.environ.get("HEALTH_DISK_WARN_PCT", "10"))  # 여유 %
 REFRESH_WARN_DAYS = int(os.environ.get("HEALTH_REFRESH_WARN_DAYS", "7"))
 # 라이브 인증 검증(실제 1턴 호출). doctor·auth status 는 라이브 검증을 하지 않으므로
@@ -399,6 +400,28 @@ def check_hostauto() -> Section:
         return "warn", f"{len(marks)}건 · 최근 {newest.parent.parent.name[:28]} ({stage}: {reason})"
 
     s.probe("추출 실패 누적", _parse_err)
+
+    # 드레인이 N회 연속 실패해 **자동 처리를 포기한** 항목. 포기 순간 텔레그램으로도 알리지만
+    # 그건 "지금 조치하라" 이고 이쪽은 "아직 안 치웠다" 다(추출 실패 항목과 같은 짝 구조).
+    def _giveup():
+        db = Path(os.environ.get("BRAIN_DRAIN_FAILDB", HOME / ".local/state/brain-drain-fails.tsv"))
+        if not db.is_file():
+            return "ok", ""
+        rows = [l for l in db.read_text(encoding="utf-8", errors="ignore").splitlines() if l.strip()]
+        given = []
+        for l in rows:
+            f = l.split("\t")
+            try:
+                if len(f) >= 2 and int(f[1]) >= GIVEUP_FAILS:
+                    given.append((f[0], f[1], f[3] if len(f) > 3 else ""))
+            except ValueError:
+                continue
+        if not given:
+            return "ok", (f"재시도 대기 {len(rows)}건" if rows else "")
+        it, cnt, why = given[0]
+        return "warn", f"{len(given)}건 · 최근 {it[:26]} ({cnt}회: {why[:34]})"
+
+    s.probe("드레인 포기 항목", _giveup)
     return s
 
 
