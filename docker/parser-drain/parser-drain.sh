@@ -21,17 +21,27 @@ LOG="${PARSER_DRAIN_LOG:-$HOME/.local/state/parser-drain.log}"
 mkdir -p "$(dirname "$LOG")"
 log(){ echo "$(date -Is) $*" >>"$LOG"; }
 
-# ── concurrency=1 ──
-exec 9>"/run/user/$(id -u)/parser-drain.lock"
-flock -n 9 || { log "already running, skip"; exit 0; }
-[ -d "$INBOX" ] || { log "no inbox: $INBOX"; exit 0; }
+# ── 모드 ──────────────────────────────────────────────────────────────────────
+# `--alert-only` = 파싱하지 않고 **현재 쌓인 `.parse-error` 를 훑어 알림만 재발송**한다.
+# 모든 알림은 자동발화와 1회성 호출 **양쪽**이 되어야 한다는 원칙(Dr. Ben, 2026-08-07).
+# 즉시 알림은 원래 런 안에서만 나가서 "지금 밀린 실패 다시 보내줘" 를 할 수단이 없었다.
+# 읽기 전용이므로 flock 도 컨테이너도 잡지 않는다 — 드레인이 도는 중에도 안전하게 부를 수 있다.
+ALERT_ONLY=0
+[ "${1:-}" = "--alert-only" ] && ALERT_ONLY=1
 
-# ── warm 데몬 1회 기동, 종료 시 teardown ──
-cd "$REPO/docker"
-mapfile -t CF < <(./scripts/detect-compose.sh)
-COMPOSE=(docker compose ${CF[*]})
-"${COMPOSE[@]}" up -d 2nd-brain-parser >>"$LOG" 2>&1
-trap '"${COMPOSE[@]}" down >>"$LOG" 2>&1 || true' EXIT
+if [ "$ALERT_ONLY" != 1 ]; then
+  # ── concurrency=1 ──
+  exec 9>"/run/user/$(id -u)/parser-drain.lock"
+  flock -n 9 || { log "already running, skip"; exit 0; }
+  [ -d "$INBOX" ] || { log "no inbox: $INBOX"; exit 0; }
+
+  # ── warm 데몬 1회 기동, 종료 시 teardown ──
+  cd "$REPO/docker"
+  mapfile -t CF < <(./scripts/detect-compose.sh)
+  COMPOSE=(docker compose ${CF[*]})
+  "${COMPOSE[@]}" up -d 2nd-brain-parser >>"$LOG" 2>&1
+  trap '"${COMPOSE[@]}" down >>"$LOG" 2>&1 || true' EXIT
+fi
 
 # 엔진 1회 실행 → host 파일로 atomic 기록. $1=host출력, $2..=parser CLI 인자(컨테이너 경로)
 # 실패 시 마지막 오류 줄을 LAST_ERR 에 담는다 — 마커에 사유를 남기기 위해서다(아래 mark_error).
@@ -97,6 +107,59 @@ tg_send(){   # $1=text. 비-fatal — 알림 실패가 파싱 결과를 무효�
     --data-urlencode "disable_web_page_preview=true" >/dev/null 2>>"$LOG" \
     || log "tg: alert send failed (non-fatal)"
 }
+
+# 알림 문안 생성. $1=라벨(신규|누적), $2.. = "stage|source|reason" 항목들.
+# 문안 규약은 health-report.py 와 동일(번호식·무이모지·줄끝 표식) — 같은 방에 섞여 오므로.
+alert_msg(){
+  local label="$1"; shift
+  local total=$# i=0 e stage rest src why hint msg
+  msg="[파싱 실패] ${label} ${total}건 · $(hostname)
+$(date '+%Y-%m-%d %H:%M KST')
+
+1. 추출 실패"
+  for e in "$@"; do
+    i=$((i+1))
+    if [ "$i" -gt "$ALERT_MAX" ]; then
+      msg="${msg}
+1-$((ALERT_MAX+1)). …외 $(( total - ALERT_MAX ))건 [x]"
+      break
+    fi
+    stage="${e%%|*}"; rest="${e#*|}"; src="${rest%%|*}"; why="${rest#*|}"
+    hint=""
+    # hwp 는 조치가 정해져 있다 — 알림에 그 한 줄이 있으면 바로 손이 움직인다.
+    [ "$stage" = hwp ] && hint=" → 한컴에서 hwpx 로 재저장하면 OWPML 직독 경로가 처리"
+    msg="${msg}
+1-${i}. $(basename "$src") [x]
+      ${stage}: $(printf '%s' "$why" | cut -c1-90)${hint}
+      ${src}"
+  done
+  printf '%s' "$msg"
+}
+
+# ── --alert-only: 현재 쌓인 마커를 훑어 재발송하고 종료 ──
+if [ "$ALERT_ONLY" = 1 ]; then
+  STANDING=()
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    st="$(awk -F': ' '/^stage:/{print $2; exit}' "$m" 2>/dev/null)"
+    sr="$(awk -F': ' '/^source:/{print $2; exit}' "$m" 2>/dev/null)"
+    rn="$(awk -F': ' '/^reason:/{ $1=""; sub(/^ /,""); print; exit}' "$m" 2>/dev/null)"
+    STANDING+=("${st:-?}|${sr:-$(dirname "$m")}|${rn:-(사유 미상)}")
+  done < <(find "$SB_DATA/sources" -name .parse-error 2>/dev/null | sort)
+  if [ "${#STANDING[@]}" -eq 0 ]; then
+    # 0건도 **보낸다**. 물어본 사람에게 "지금 깨끗하다"가 답이다(침묵은 답이 아니다).
+    tg_send "[파싱 실패] 누적 0건 · $(hostname)
+$(date '+%Y-%m-%d %H:%M KST')
+
+1. 추출 실패
+1-1. 없음 [o]"
+    log "tg: --alert-only — 누적 0건 알림 발송"
+  else
+    tg_send "$(alert_msg "누적" "${STANDING[@]}")"
+    log "tg: --alert-only — 누적 ${#STANDING[@]}건 알림 발송"
+  fi
+  exit 0
+fi
 
 shopt -s nullglob globstar
 n=0
@@ -387,27 +450,9 @@ fi
 
 # 실패로 건너뛴 건수를 반드시 남긴다 — 조용히 빠지면 "백로그가 다 끝났다"로 오독된다.
 [ "$ferr" -gt 0 ] && log "skip(.parse-error): ${ferr}건 — 재시도는 PARSER_DRAIN_RETRY_ERRORS=1"
-# ── 신규 실패 즉시 알림 ── (문안 규약은 health-report.py 와 동일: 번호식·무이모지·줄끝 표식)
+# ── 신규 실패 즉시 알림 ──
 if [ "${#NEWFAIL[@]}" -gt 0 ]; then
-  msg="[파싱 실패] ${#NEWFAIL[@]}건 · $(hostname)
-$(date '+%Y-%m-%d %H:%M KST')
-
-1. 추출 실패"
-  i=0
-  for e in "${NEWFAIL[@]}"; do
-    i=$((i+1))
-    [ "$i" -gt "$ALERT_MAX" ] && { msg="${msg}
-1-$((ALERT_MAX+1)). …외 $(( ${#NEWFAIL[@]} - ALERT_MAX ))건 [x]"; break; }
-    stage="${e%%|*}"; rest="${e#*|}"; src="${rest%%|*}"; why="${rest#*|}"
-    hint=""
-    # hwp 는 조치가 정해져 있다 — 알림에 그 한 줄이 있으면 바로 손이 움직인다.
-    [ "$stage" = hwp ] && hint=" → 한컴에서 hwpx 로 재저장하면 OWPML 직독 경로가 처리"
-    msg="${msg}
-1-${i}. $(basename "$src") [x]
-      ${stage}: $(printf '%s' "$why" | cut -c1-90)${hint}
-      ${src}"
-  done
-  tg_send "$msg"
+  tg_send "$(alert_msg "신규" "${NEWFAIL[@]}")"
   log "tg: 신규 실패 ${#NEWFAIL[@]}건 알림 발송"
 fi
 
