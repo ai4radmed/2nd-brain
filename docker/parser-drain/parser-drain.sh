@@ -107,6 +107,51 @@ attempt_one(){ is_inbox "$1" || bn=$((bn+1)); }
 ferr=0
 skip_failed(){ [ -e "$1/.parse-error" ] && [ "${PARSER_DRAIN_RETRY_ERRORS:-0}" != 1 ]; }
 
+# ── 방대 reference 게이트 (2026-08-07 신설) ────────────────────────────────────
+#
+# 1,400페이지짜리 수가집·초록집 같은 문서는 **풀파싱하지 않는다.** vault 운영 매뉴얼의
+# skipped-bulk 규칙(≥100p 는 풀텍스트 대신 목차·페이지 인덱스 + on-demand `Read pages:`)이
+# 이미 그렇게 정하고 있고, `brainify.py _is_bulk()` 에도 같은 게이트가 구현돼 있다.
+#
+# 그런데 추출 단계에는 그 게이트가 없어서, brainify 가 "방대해서 자동 파싱 제외" 라고 판단할
+# 문서를 parser-drain 이 먼저 30분씩 갈고 있었다(실측: 2026년판 1,430p 가 27분 30초, 2025년판
+# 1,472p 는 900초 상한에 두 번 걸려 실패). GPU·시간을 쓰고도 산출물은 brainify 가 안 쓴다.
+#
+# 판정 기준은 brainify 와 **똑같이** 맞춘다 — 두 단계가 다른 잣대를 쓰면 그 자체가 버그다.
+#   이름패턴(전 포맷) OR PDF(페이지≥BULK_PAGES, 페이지 미상이면 크기≥BULK_MB)
+# 건너뛴 것은 `.parse-skipped` 로 표시한다. **`.parse-error` 가 아니다** — 고장이 아니라 정책이고,
+# 오류 집계를 오염시키면 안 된다.
+BULK_PAGES="${PARSER_DRAIN_BULK_PAGES:-100}"
+BULK_MB="${PARSER_DRAIN_BULK_MB:-20}"
+BULK_NAME_RE="${PARSER_DRAIN_BULK_NAME:-초록집|자료집|proceedings|abstract|논문집|카탈로그|catalog|book}"
+
+is_bulk(){   # $1=파일. 방대하면 사유를 stdout 에 내고 0, 아니면 1
+  local f="$1" base pg mb
+  base="$(basename "$f")"
+  if printf '%s' "$base" | grep -qiE "$BULK_NAME_RE"; then
+    printf '이름패턴(%s)' "$(printf '%s' "$base" | grep -oiE "$BULK_NAME_RE" | head -1)"; return 0
+  fi
+  case "${f##*.}" in
+    pdf|PDF)
+      pg="$(pdfinfo "$f" 2>/dev/null | awk '/^Pages:/{print $2; exit}')"
+      if [ -n "$pg" ]; then
+        [ "$pg" -ge "$BULK_PAGES" ] && { printf '%sp≥%sp' "$pg" "$BULK_PAGES"; return 0; }
+      else
+        mb=$(( $(stat -c%s "$f") / 1048576 ))
+        [ "$mb" -ge "$BULK_MB" ] && { printf '%sMB≥%sMB(페이지 미상)' "$mb" "$BULK_MB"; return 0; }
+      fi ;;
+  esac
+  return 1
+}
+
+nbulk=0
+mark_bulk(){   # $1=_parse dir  $2=원본  $3=사유
+  mkdir -p "$1" 2>/dev/null || true
+  printf 'ts: %s\nhost: %s\nsource: %s\nreason: 방대 reference — 자동 파싱 제외 (%s)\nhow: 풀텍스트 대신 목차·페이지 인덱스 + 필요 시 Read pages:\npolicy: vault CLAUDE.md skipped-bulk / brainify _is_bulk\n' \
+    "$(date -Is)" "$(hostname)" "$2" "$3" >"$1/.parse-skipped" 2>/dev/null || true
+}
+skip_bulk(){ [ -e "$1/.parse-skipped" ] && [ "${PARSER_DRAIN_FORCE_BULK:-0}" != 1 ]; }
+
 # 후보 경로 나열. $@ = 확장자들. 인박스분을 먼저, 그다음 sources 전체(중복은 dedup).
 # 파싱 산출물 내부(`*_parse/`)는 여기서 일괄 제외 — mineru 가 뽑아 둔 figure 이미지를 다시
 # OCR 하는 무한 증식을 막는다(예전엔 이미지 루프에만 있던 가드를 전 루프로 올림).
@@ -163,6 +208,15 @@ while IFS= read -r f; do
   # 멱등: PDF=diff.json, 비-PDF=docling.json 있으면 완료로 보고 skip
   if [ "$ext" = pdf ]; then [ -s "$out/diff.json" ] && continue
   else [ -s "$out/docling.json" ] && continue; fi
+  # ★ 방대 게이트가 실패 게이트보다 **먼저** 온다. 순서가 반대면, 과거에 타임아웃으로 실패해
+  #   .parse-error 가 붙은 방대 파일은 skip_failed 에서 걸러져 bulk 판정에 도달조차 못 한다
+  #   (실측: 1,472p 수가집이 그래서 skip-bulk 0 으로 나왔다). 정책이 오류 상태보다 우선이다.
+  skip_bulk "$out" && { nbulk=$((nbulk+1)); continue; }
+  if bulkwhy="$(is_bulk "$f")"; then
+    # 파싱을 시도하지 않기로 한 이상 과거의 실패 마커는 의미가 없다 — 오류 집계에서 뺀다.
+    clear_error "$out"
+    log "skip(bulk): $f — $bulkwhy"; mark_bulk "$out" "$f" "$bulkwhy"; nbulk=$((nbulk+1)); continue
+  fi
   skip_failed "$out" && { ferr=$((ferr+1)); continue; }
   mkdir -p "$out"
   log "parse($ext): $f"; attempt_one "$f"
@@ -285,4 +339,5 @@ fi
 
 # 실패로 건너뛴 건수를 반드시 남긴다 — 조용히 빠지면 "백로그가 다 끝났다"로 오독된다.
 [ "$ferr" -gt 0 ] && log "skip(.parse-error): ${ferr}건 — 재시도는 PARSER_DRAIN_RETRY_ERRORS=1"
-log "drain done ($n processed, backlog ${bn}/${MAX_PER_RUN}, skip-failed ${ferr})"
+[ "$nbulk" -gt 0 ] && log "skip(bulk): ${nbulk}건 — 방대 reference, 강제 파싱은 PARSER_DRAIN_FORCE_BULK=1"
+log "drain done ($n processed, backlog ${bn}/${MAX_PER_RUN}, skip-failed ${ferr}, skip-bulk ${nbulk})"
