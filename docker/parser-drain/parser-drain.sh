@@ -395,7 +395,7 @@ while IFS= read -r f; do
   else
     log "ok(docling-only, mineru 없음): $f"; clear_error "$out"; count_one "$f"
   fi
-done < <(candidates pdf docx xlsx)
+done < <(candidates pdf docx xlsx pptx)
 
 # ── 이미지: parse-ocr 단일 → ocr.json (전략 §이미지 OCR — device-adaptive) ──
 # docling/mineru 대신 OCR. ⚠️ _parse/ 하위(mineru 가 추출한 figure 이미지)는 제외 —
