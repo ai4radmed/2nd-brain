@@ -172,6 +172,7 @@ candidates(){
 #       HWP 는 단일소스(mineru N/A·diff 불가)라 refine 이 no-op → 추출=refine 한 번에, refined.md 직접.
 #       brainify `_refined()` 가 이 refined.md 를 소비(컨테이너 안 탐). 멱등: refined.md 있으면 skip.
 HWP_REFINE="$REPO/docker/parser-drain/hwp_refine.py"
+XLSX_REFINE="$REPO/docker/parser-drain/xlsx_refine.py"   # docling 실패 시 xlsx 폴백
 while IFS= read -r f; do
   backlog_stop "$f" && { log "cap($MAX_PER_RUN) 도달 — hwp 백로그 중단"; break; }
   # 후보 목록은 런 시작에 한 번 만들어진다 — 그 사이 brainify·prune 이 원본을 옮기거나
@@ -207,7 +208,7 @@ while IFS= read -r f; do
 
   # 멱등: PDF=diff.json, 비-PDF=docling.json 있으면 완료로 보고 skip
   if [ "$ext" = pdf ]; then [ -s "$out/diff.json" ] && continue
-  else [ -s "$out/docling.json" ] && continue; fi
+  else [ -s "$out/docling.json" ] || [ -s "$out/refined.md" ] && continue; fi
   # ★ 방대 게이트가 실패 게이트보다 **먼저** 온다. 순서가 반대면, 과거에 타임아웃으로 실패해
   #   .parse-error 가 붙은 방대 파일은 skip_failed 에서 걸러져 bulk 판정에 도달조차 못 한다
   #   (실측: 1,472p 수가집이 그래서 skip-bulk 0 으로 나왔다). 정책이 오류 상태보다 우선이다.
@@ -223,8 +224,15 @@ while IFS= read -r f; do
 
   # docling (전 포맷; 이미 있으면 재사용)
   if [ ! -s "$out/docling.json" ]; then
-    run_to "$out/docling.json" parse-docling "$cpath" \
-      || { log "FAIL docling: $f — $LAST_ERR"; mark_error "$out" docling "$f"; continue; }
+    if ! run_to "$out/docling.json" parse-docling "$cpath"; then
+      # ★ xlsx 는 stdlib 폴백이 있다. docling 이 멀쩡한 엑셀을 못 읽는 경우가 실재한다
+      #   (2026-08-07 실측 2건: ZeroDivisionError / ConversionError — 둘 다 zip·시트·
+      #   sharedStrings 정상이었다). 파일이 아니라 파서 한계이므로 여기서 끝내면 안 된다.
+      if [ "$ext" = xlsx ] && [ -f "$XLSX_REFINE" ] && python3 "$XLSX_REFINE" "$f" >>"$LOG" 2>&1; then
+        log "ok(xlsx-stdlib 폴백): $f"; clear_error "$out"; count_one "$f"; continue
+      fi
+      log "FAIL docling: $f — $LAST_ERR"; mark_error "$out" docling "$f"; continue
+    fi
   fi
 
   if [ "$ext" != pdf ]; then
