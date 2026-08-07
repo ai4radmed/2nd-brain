@@ -377,6 +377,28 @@ def check_hostauto() -> Section:
         return ("warn" if days > HOLD_STALE_DAYS else "ok"), f"{len(items)}건 (가장 오래된 것 {days:.1f}일 전)"
 
     s.probe("인박스 _hold 대기", _hold)
+
+    # 추출 실패(.parse-error) 누적. parser-drain 이 실패 즉시 텔레그램으로도 알리지만, 그건
+    # "지금 조치하라" 이고 이쪽은 **"아직 안 치웠다"** 다 — 역할이 다르므로 둘 다 있는 게 맞다.
+    # (2026-08-06 이전엔 어디서도 안 세어 26건이 몇 달간 조용히 쌓여 있었다.)
+    # `.parse-skipped`(방대 reference·hwpx 대체분)는 세지 않는다 — 고장이 아니라 정책이다.
+    def _parse_err():
+        src = VAULT / "sources"
+        if not src.is_dir():
+            return "ok", "(sources 없음)"
+        marks = list(src.rglob(".parse-error"))
+        if not marks:
+            return "ok", ""
+        newest = max(marks, key=lambda p: p.stat().st_mtime)
+        stage = reason = ""
+        for line in newest.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if line.startswith("stage:"):
+                stage = line.split(":", 1)[1].strip()
+            elif line.startswith("reason:"):
+                reason = line.split(":", 1)[1].strip()[:60]
+        return "warn", f"{len(marks)}건 · 최근 {newest.parent.parent.name[:28]} ({stage}: {reason})"
+
+    s.probe("추출 실패 누적", _parse_err)
     return s
 
 

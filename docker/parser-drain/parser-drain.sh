@@ -61,12 +61,42 @@ run_to(){
 mark_error(){
   printf 'ts: %s\nhost: %s\nstage: %s\nsource: %s\nreason: %s\n' \
     "$(date -Is)" "$(hostname)" "$2" "$3" "${LAST_ERR:-(사유 미상)}" >"$1/.parse-error" 2>/dev/null || true
+  NEWFAIL+=("$2|$3|${LAST_ERR:-(사유 미상)}")   # 이번 런의 신규 실패 — 끝에서 한 번에 알린다
 }
 
 # 성공하면 마커를 지운다. **이 동작이 없었다**(2026-08-06 발견) — 한 번 실패한 파일은 나중에
 # 성공해도 마커가 남아, `.parse-error` 개수가 '현재 미해결'이 아니라 '실패한 적 있는 파일의
 # 누적 명부'였다. 실제로 재시도에서 통과한 4건이 계속 실패로 집계되고 있었다.
 clear_error(){ rm -f "$1/.parse-error" 2>/dev/null || true; }
+
+# ── 신규 실패 즉시 알림 (2026-08-07) ────────────────────────────────────────────
+# `.parse-error` 는 그동안 **아무 데서도 집계되지 않았다** — 드레인 보고의 "파싱오류 stub" 은
+# 노트의 parse_confidence:low 를 세는 것이고, 헬스체크에도 항목이 없었다. 그래서 26건이
+# 몇 달간 조용히 쌓였고 손으로 찾아보기 전까지 아무도 몰랐다(2026-08-06 발견).
+#
+# 실패는 드물다(hwp 181개 중 1개 실패). 드물기 때문에 **즉시 알려도 소음이 안 된다** —
+# 성공에는 침묵하고 실패에만 말한다. 아침 헬스체크의 누적 보고와 역할이 다르다:
+# 즉시 알림 = "지금 조치하라", 아침 = "아직 안 치웠다".
+#
+# ★ 폭주 방지: 이번 런에서 **새로 생긴** 마커만 모으고, 메시지에는 최대 MAX 건만 적는다.
+#   파서가 통째로 깨지면 수십 건이 한 런에 쏟아질 수 있는데, 그때 수십 통을 보내면
+#   알림 자체가 무의미해진다. 나머지는 "…외 N건" 으로 **밝히고** 줄인다.
+NEWFAIL=()
+ALERT_MAX="${PARSER_DRAIN_ALERT_MAX:-5}"
+TG_CHAT="${PARSER_DRAIN_TG_CHAT:-8669227844}"
+OPENCLAW_JSON="${OPENCLAW_JSON:-$HOME/.openclaw/openclaw.json}"
+
+tg_send(){   # $1=text. 비-fatal — 알림 실패가 파싱 결과를 무효화하지 않는다.
+  local text="$1" token
+  token="${PARSER_DRAIN_TG_TOKEN:-$(python3 -c "import json;print(json.load(open('$OPENCLAW_JSON'))['channels']['telegram']['botToken'])" 2>/dev/null || true)}"
+  # 토큰이 없으면 **보내려던 문안을 로그에 남긴다** — 조용히 사라지면 알림이 도는지
+  # 안 도는지 알 수 없다(자동화를 끈 자리는 그 사실이 남아야 한다).
+  [ -z "$token" ] && { log "tg: no token — alert skip. 문안:"; printf '%s\n' "$text" >>"$LOG"; return 0; }
+  curl -sS --max-time 20 "https://api.telegram.org/bot${token}/sendMessage" \
+    --data-urlencode "chat_id=${TG_CHAT}" --data-urlencode "text=${text}" \
+    --data-urlencode "disable_web_page_preview=true" >/dev/null 2>>"$LOG" \
+    || log "tg: alert send failed (non-fatal)"
+}
 
 shopt -s nullglob globstar
 n=0
@@ -182,6 +212,14 @@ while IFS= read -r f; do
   [ -f "$f" ] || { log "원본 사라짐(다른 단계가 이동·삭제) — skip: $f"; continue; }
   out="${f}_parse"
   [ -s "$out/refined.md" ] && continue           # 멱등
+  # ★ .parse-skipped 는 **전 루프가 존중해야 한다.** PDF 루프에만 넣었더니, hwpx 로 대체
+  #   처리해 skipped 로 표시한 hwp 를 이 루프가 무시하고 재시도해 실패 마커를 되살렸다
+  #   (2026-08-07 실측). 표식은 형식이 아니라 *결정*이므로 형식별로 달리 볼 이유가 없다.
+  skip_bulk "$out" && { nbulk=$((nbulk+1)); continue; }
+  if bulkwhy="$(is_bulk "$f")"; then
+    clear_error "$out"; log "skip(bulk): $f — $bulkwhy"; mark_bulk "$out" "$f" "$bulkwhy"
+    nbulk=$((nbulk+1)); continue
+  fi
   skip_failed "$out" && { ferr=$((ferr+1)); continue; }
   log "parse(hwp,host): $f"; attempt_one "$f"
   if python3 "$HWP_REFINE" "$f" >>"$LOG" 2>&1; then
@@ -269,6 +307,8 @@ while IFS= read -r f; do
   ext="${f##*.}"; ext="${ext,,}"
   cpath="${f/#$SB_DATA/$CMNT}"               # host→컨테이너 입력 경로
   [ -s "$out/ocr.json" ] && continue         # 멱등
+  # 수동으로 보류 표시한 이미지도 존중. (이름패턴 bulk 는 사진에 오탐이라 미적용)
+  skip_bulk "$out" && { nbulk=$((nbulk+1)); continue; }
   skip_failed "$out" && { ferr=$((ferr+1)); continue; }
   mkdir -p "$out"
   log "parse(ocr:$ext): $f"; attempt_one "$f"
@@ -347,5 +387,29 @@ fi
 
 # 실패로 건너뛴 건수를 반드시 남긴다 — 조용히 빠지면 "백로그가 다 끝났다"로 오독된다.
 [ "$ferr" -gt 0 ] && log "skip(.parse-error): ${ferr}건 — 재시도는 PARSER_DRAIN_RETRY_ERRORS=1"
+# ── 신규 실패 즉시 알림 ── (문안 규약은 health-report.py 와 동일: 번호식·무이모지·줄끝 표식)
+if [ "${#NEWFAIL[@]}" -gt 0 ]; then
+  msg="[파싱 실패] ${#NEWFAIL[@]}건 · $(hostname)
+$(date '+%Y-%m-%d %H:%M KST')
+
+1. 추출 실패"
+  i=0
+  for e in "${NEWFAIL[@]}"; do
+    i=$((i+1))
+    [ "$i" -gt "$ALERT_MAX" ] && { msg="${msg}
+1-$((ALERT_MAX+1)). …외 $(( ${#NEWFAIL[@]} - ALERT_MAX ))건 [x]"; break; }
+    stage="${e%%|*}"; rest="${e#*|}"; src="${rest%%|*}"; why="${rest#*|}"
+    hint=""
+    # hwp 는 조치가 정해져 있다 — 알림에 그 한 줄이 있으면 바로 손이 움직인다.
+    [ "$stage" = hwp ] && hint=" → 한컴에서 hwpx 로 재저장하면 OWPML 직독 경로가 처리"
+    msg="${msg}
+1-${i}. $(basename "$src") [x]
+      ${stage}: $(printf '%s' "$why" | cut -c1-90)${hint}
+      ${src}"
+  done
+  tg_send "$msg"
+  log "tg: 신규 실패 ${#NEWFAIL[@]}건 알림 발송"
+fi
+
 [ "$nbulk" -gt 0 ] && log "skip(bulk): ${nbulk}건 — 방대 reference, 강제 파싱은 PARSER_DRAIN_FORCE_BULK=1"
 log "drain done ($n processed, backlog ${bn}/${MAX_PER_RUN}, skip-failed ${ferr}, skip-bulk ${nbulk})"
