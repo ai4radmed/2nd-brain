@@ -294,6 +294,33 @@ while IFS= read -r f; do
   fi
 done < <(candidates hwp hwpx)
 
+# ── XLS(구형 엑셀): 호스트-측 stdlib 직독 ──
+# 근거(2026-08-07 실측): .xls 를 여는 다른 경로가 전부 막혀 있다. docling 은 .xls 를 입력으로
+#   받지 않고, 호스트 soffice 는 `no export filter`(libreoffice-calc 미설치 — writer·math 만
+#   깔려 있어 hwp→pandoc 만 살아 있다), 컨테이너엔 soffice 자체가 없다. apt 로 calc 를 깔면
+#   kimbi 만 되고 ai4lt·컨테이너는 조용히 실패하는 비대칭이 생겨, stdlib BIFF 직독으로 간다.
+#   확장자가 .xls 여도 실제는 HTML 인 관공서 산출물이 있어 xls_refine 이 매직바이트로 가른다.
+XLS_REFINE="$REPO/docker/parser-drain/xls_refine.py"
+while IFS= read -r f; do
+  backlog_stop "$f" && { log "cap($MAX_PER_RUN) 도달 — xls 백로그 중단"; break; }
+  [ -f "$f" ] || { log "원본 사라짐(다른 단계가 이동·삭제) — skip: $f"; continue; }
+  out="${f}_parse"
+  [ -s "$out/refined.md" ] && continue           # 멱등
+  skip_bulk "$out" && { nbulk=$((nbulk+1)); continue; }
+  if bulkwhy="$(is_bulk "$f")"; then
+    clear_error "$out"; log "skip(bulk): $f — $bulkwhy"; mark_bulk "$out" "$f" "$bulkwhy"
+    nbulk=$((nbulk+1)); continue
+  fi
+  skip_failed "$out" && { ferr=$((ferr+1)); continue; }
+  log "parse(xls,host): $f"; attempt_one "$f"
+  if python3 "$XLS_REFINE" "$f" >>"$LOG" 2>&1; then
+    log "ok(xls,host): $f"; clear_error "$out"; count_one "$f"
+  else
+    LAST_ERR="$(tail -3 "$LOG" | tr "\n" " " | tail -c 300)"
+    log "FAIL xls(host): $f"; mark_error "$out" xls "$f"
+  fi
+done < <(candidates xls)
+
 # ── PDF·docx·xlsx: 컨테이너(2nd-brain-parser) 경로 ──
 while IFS= read -r f; do
   backlog_stop "$f" && { log "cap($MAX_PER_RUN) 도달 — pdf/docx/xlsx 백로그 중단"; break; }
