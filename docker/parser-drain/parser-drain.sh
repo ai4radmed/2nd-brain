@@ -211,29 +211,43 @@ skip_failed(){ [ -e "$1/.parse-error" ] && [ "${PARSER_DRAIN_RETRY_ERRORS:-0}" !
 # 1,472p 는 900초 상한에 두 번 걸려 실패). GPU·시간을 쓰고도 산출물은 brainify 가 안 쓴다.
 #
 # 판정 기준은 brainify 와 **똑같이** 맞춘다 — 두 단계가 다른 잣대를 쓰면 그 자체가 버그다.
-#   이름패턴(전 포맷) OR PDF(페이지≥BULK_PAGES, 페이지 미상이면 크기≥BULK_MB)
+#   (페이지≥BULK_PAGES) OR (크기≥BULK_MB) OR (이름패턴 AND 규모 하한)
 # 건너뛴 것은 `.parse-skipped` 로 표시한다. **`.parse-error` 가 아니다** — 고장이 아니라 정책이고,
 # 오류 집계를 오염시키면 안 된다.
+#
+# ★ 이름패턴에 규모 하한을 붙인 이유 (2026-08-07 개정). 초판은 이름패턴 단독으로 발동했다.
+#   그래서 `AOFNMB Series of Books 관련 Korea chapter 저자 추천.pdf` — **94KB·5페이지** 문서가
+#   파일명의 "Books" 하나로 방대 reference 취급돼 제외됐다. 게이트의 취지는 1,400페이지짜리를
+#   GPU 에서 빼는 것이지 제목에 book 이 든 짧은 문서를 버리는 게 아니다. 이름은 *힌트*일 뿐이고
+#   방대함의 근거는 규모여야 한다 — 그래서 이름패턴은 이제 **하한을 넘긴 문서에만** 적용되고,
+#   하한을 명확히 넘는 문서는 이름과 무관하게 걸린다(이름패턴은 경계선 구간을 낮춰줄 뿐).
 BULK_PAGES="${PARSER_DRAIN_BULK_PAGES:-100}"
 BULK_MB="${PARSER_DRAIN_BULK_MB:-20}"
+# 이름패턴이 맞을 때 적용하는 완화 하한 — 이름이 방대함을 시사하므로 문턱을 낮춰 잡는다.
+BULK_NAME_PAGES="${PARSER_DRAIN_BULK_NAME_PAGES:-40}"
+BULK_NAME_MB="${PARSER_DRAIN_BULK_NAME_MB:-8}"
 BULK_NAME_RE="${PARSER_DRAIN_BULK_NAME:-초록집|자료집|proceedings|abstract|논문집|카탈로그|catalog|book}"
 
 is_bulk(){   # $1=파일. 방대하면 사유를 stdout 에 내고 0, 아니면 1
-  local f="$1" base pg mb
+  local f="$1" base pg mb named=0 hit=""
   base="$(basename "$f")"
   if printf '%s' "$base" | grep -qiE "$BULK_NAME_RE"; then
-    printf '이름패턴(%s)' "$(printf '%s' "$base" | grep -oiE "$BULK_NAME_RE" | head -1)"; return 0
+    named=1; hit="$(printf '%s' "$base" | grep -oiE "$BULK_NAME_RE" | head -1)"
   fi
+  mb=$(( $(stat -c%s "$f" 2>/dev/null || echo 0) / 1048576 ))
+  pg=""
   case "${f##*.}" in
-    pdf|PDF)
-      pg="$(pdfinfo "$f" 2>/dev/null | awk '/^Pages:/{print $2; exit}')"
-      if [ -n "$pg" ]; then
-        [ "$pg" -ge "$BULK_PAGES" ] && { printf '%sp≥%sp' "$pg" "$BULK_PAGES"; return 0; }
-      else
-        mb=$(( $(stat -c%s "$f") / 1048576 ))
-        [ "$mb" -ge "$BULK_MB" ] && { printf '%sMB≥%sMB(페이지 미상)' "$mb" "$BULK_MB"; return 0; }
-      fi ;;
+    pdf|PDF) pg="$(pdfinfo "$f" 2>/dev/null | awk '/^Pages:/{print $2; exit}')" ;;
   esac
+  if [ -n "$pg" ]; then
+    [ "$pg" -ge "$BULK_PAGES" ] && { printf '%sp≥%sp' "$pg" "$BULK_PAGES"; return 0; }
+    [ "$named" = 1 ] && [ "$pg" -ge "$BULK_NAME_PAGES" ] && {
+      printf '이름패턴(%s)+%sp≥%sp' "$hit" "$pg" "$BULK_NAME_PAGES"; return 0; }
+  else
+    [ "$mb" -ge "$BULK_MB" ] && { printf '%sMB≥%sMB(페이지 미상)' "$mb" "$BULK_MB"; return 0; }
+    [ "$named" = 1 ] && [ "$mb" -ge "$BULK_NAME_MB" ] && {
+      printf '이름패턴(%s)+%sMB≥%sMB(페이지 미상)' "$hit" "$mb" "$BULK_NAME_MB"; return 0; }
+  fi
   return 1
 }
 
