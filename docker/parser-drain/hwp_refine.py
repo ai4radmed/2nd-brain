@@ -41,7 +41,7 @@ def _owpml_hyperlink_url(field_begin):
 
 
 # 그림 컨텍스트 — parse_hwpx 가 파일마다 리셋. {id: (파일명, 폭, 높이)}
-_IMG = {"map": {}, "hits": 0}
+_IMG = {"map": {}, "hits": 0, "docx": []}
 MIN_IMG_PX = 200          # 이 미만(긴 변)은 장식으로 보고 본문 마커 생략(추출은 함)
 
 
@@ -199,7 +199,7 @@ def _extract_images(z, parse_dir):
 
 def parse_hwpx(path):
     """hwpx → 문단+표(HTML) markdown. 실패 시 '' (호출부가 docx 폴백)."""
-    _IMG["map"], _IMG["hits"] = {}, 0
+    _IMG["map"], _IMG["hits"], _IMG["docx"] = {}, 0, []
     try:
         with zipfile.ZipFile(path) as z:
             _IMG["map"] = _extract_images(z, path + "_parse")
@@ -225,6 +225,58 @@ def clean_md(body):
     return re.sub(r"\n{3,}", "\n\n", body).strip()
 
 
+def _docx_images(docx, parse_dir):
+    """중간 docx 의 그림을 `_parse/images/` 로 꺼내고 **문서순** 목록을 만든다.
+
+    hwp 경로에도 hwpx 와 같은 그림 유실이 있다 — 다만 사라지는 지점이 다르다:
+    soffice 가 만든 docx 에는 그림이 `word/media/` 에 **멀쩡히 남아 있고**, 그 다음
+    `pandoc -t gfm` 이 버린다(실측: LibreOffice 가 그림을 `w:pict` 로 감싸 내보내는데
+    pandoc docx 리더가 이를 건너뛴다 → `--extract-media` 를 줘도 마크다운에 `![]` 참조가
+    0건). 따라서 pandoc 에 맡기지 않고 직접 꺼낸다.
+
+    ⚠️ hwpx(OWPML) 와 달리 **본문 위치를 복원하지 못한다** — 마크다운 어느 지점에 붙은
+    그림인지 대응시킬 앵커가 없다. 그래서 위치 마커 대신 *문서순 인벤토리*를 끝에 붙인다.
+    목적은 위치 재현이 아니라 **"그림이 있었다"는 사실과 실물을 잃지 않는 것**이다.
+    """
+    try:
+        with zipfile.ZipFile(docx) as z:
+            names = z.namelist()
+            rels = z.read("word/_rels/document.xml.rels").decode("utf-8", "ignore")
+            rid2tgt = dict(re.findall(r'Id="([^"]+)"[^>]*Target="([^"]+)"', rels))
+            doc = z.read("word/document.xml").decode("utf-8", "ignore")
+            order = [rid2tgt.get(r) for r in
+                     re.findall(r'<(?:a:blip|v:imagedata)[^>]*r:(?:embed|id)="([^"]+)"', doc)]
+            seen, ordered = set(), []
+            for tgt in order:                          # 문서순, 중복 참조는 1회만
+                if tgt and tgt not in seen:
+                    seen.add(tgt)
+                    ordered.append(tgt)
+            for n in names:                            # 문서에서 참조 안 된 media 도 보존
+                t = n.replace("word/", "", 1)
+                if n.startswith("word/media/") and t not in seen:
+                    seen.add(t)
+                    ordered.append(t)
+            if not ordered:
+                return []
+            img_dir = os.path.join(parse_dir, "images")
+            os.makedirs(img_dir, exist_ok=True)
+            out = []
+            for tgt in ordered:
+                src = "word/" + tgt.lstrip("/")
+                if src not in names:
+                    continue
+                data = z.read(src)
+                base = os.path.basename(tgt)
+                with open(os.path.join(img_dir, base), "wb") as f:
+                    f.write(data)
+                w, h = _img_size(data)
+                out.append((base, w, h))
+            return out
+    except Exception as e:
+        print(f"  ? docx 그림 추출 실패({e}) — 본문은 정상", file=sys.stderr)
+        return []
+
+
 def parse_hwp(path, tmp):
     """hwp → docx(soffice) → gfm(pandoc) → clean_md. 실패 시 ''."""
     subprocess.run(["soffice", "--headless", "--convert-to", "docx", "--outdir", tmp, path],
@@ -233,9 +285,43 @@ def parse_hwp(path, tmp):
     docx = os.path.join(tmp, stem + ".docx")
     if not os.path.exists(docx) or os.path.getsize(docx) < 200:
         return ""
+    _IMG["docx"] = _docx_images(docx, path + "_parse")
     raw = subprocess.run(["pandoc", "-f", "docx", "-t", "gfm", "--wrap=none", docx],
                          capture_output=True, text=True).stdout
     return clean_md(raw)
+
+
+def relink_images(body):
+    """pandoc 이 남긴 media/ 참조를 `_parse/images/` 로 돌려놓고, 살아남은 파일명을 돌려준다.
+
+    pandoc 은 이 docx 의 그림 일부를 markdown `![]()` 가 아니라 **원시 HTML**
+    `<img src="media/imageN.png" .../>` 로 내보낸다(그래서 `![` grep 이 0건이었다).
+    그 참조는 존재하지 않는 `media/` 를 가리키므로 그대로 두면 깨진 링크다 —
+    실제 추출 위치인 `images/` 로 고쳐 **위치 정보를 살린다**.
+    """
+    seen = set()
+
+    def sub(m):
+        name = os.path.basename(m.group(2))
+        seen.add(name)
+        return m.group(1) + "images/" + name
+
+    body = re.sub(r'(src=")(?:\./)?media/([^"]+)', sub, body)
+    body = re.sub(r'(\]\()(?:\./)?media/([^)\s]+)', sub, body)
+    return body, seen
+
+
+def image_inventory(items, linked):
+    """본문에 위치가 안 잡힌 그림만 문서순 목록으로. 장식은 제외하되 파일은 남아 있다."""
+    rows = [f"<!-- image: images/{n}{f' {w}×{h}' if w and h else ''} -->"
+            for n, w, h in items
+            if n not in linked and not (w and h and max(w, h) < MIN_IMG_PX)]
+    if not rows:
+        return ""
+    return ("\n\n## 그림 (문서순 · 본문 위치 미상)\n\n"
+            "hwp→docx→pandoc 경로는 일부 그림의 본문 위치를 복원하지 못한다(본문에 "
+            "`<img src=\"images/...\">` 로 들어간 것은 위치가 살아 있다). 실물은 "
+            "`_parse/images/` 에 있으니 필요하면 `Read` 로 직접 볼 것.\n\n" + "\n".join(rows))
 
 
 def vault_rel(path):
@@ -246,8 +332,8 @@ def vault_rel(path):
 
 
 def refined_frontmatter(src_path, engine, images=0):
-    img = (f"images: {images}   # _parse/images/ 로 추출. 본문 <!-- image: ... --> 마커는 "
-           f"긴 변 {MIN_IMG_PX}px 이상만(장식 제외)\n") if images else ""
+    img = (f"images: {images}   # _parse/images/ 로 추출. 본문 참조(<!-- image: --> 마커 또는 "
+           f"<img src=images/..>)는 긴 변 {MIN_IMG_PX}px 이상만(장식 제외)\n") if images else ""
     return (f"---\n"
             f"source_pdf: {vault_rel(src_path)}\n"
             f"base_engine: {engine}\n"
@@ -277,7 +363,12 @@ def process(path, tmp):
     if not body:
         open(os.path.join(parse_dir, ".parse-error"), "w").close()
         return False, "본문 추출 실패(soffice/pandoc/OWPML 모두)"
-    n_img = len(_IMG["map"]) if engine == "owpml" else 0
+    if engine == "owpml":
+        n_img = len(_IMG["map"])
+    else:                                              # hwp·hwpx-폴백 = docx 경유
+        body, linked = relink_images(body)
+        body += image_inventory(_IMG["docx"], linked)
+        n_img = len(_IMG["docx"])
     open(out, "w", encoding="utf-8").write(refined_frontmatter(path, engine, n_img) + body + "\n")
     err = os.path.join(parse_dir, ".parse-error")
     if os.path.exists(err):

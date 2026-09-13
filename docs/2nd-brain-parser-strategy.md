@@ -46,13 +46,22 @@
   - → `hwp_refine.py` 가 `Contents/content.hpf` 의 `<opf:item id href>` 매핑으로 **BinData 를 `_parse/images/` 로 추출**하고, 본문 그림 위치에 `<!-- image: images/imageN.jpg 2082×2910 -->` 마커를 남긴다. frontmatter 에 `images: N`.
   - **장식 제외**: 긴 변 `MIN_IMG_PX`(=200px) 미만은 마커를 내지 않는다(파일은 추출). 실측상 72×72 글머리 아이콘 하나가 12번 반복돼 본문을 덮었다. 크기 sniff 실패 시엔 마커를 낸다(놓치는 쪽보다 시끄러운 쪽이 안전).
   - 소비 측: 추출된 이미지는 `Read` 로 직접 볼 수 있다(멀티모달). 즉 **PDF 없이도 도식 복구가 가능**하며, PDF 가 주는 추가 가치는 *페이지 맥락*(그림 주변 텍스트까지 통째)뿐이다.
+- **★ hwp(구형) 그림 — 중간 docx 에서 추출(2026-09-13 구현)**: hwp 경로에도 같은 유실이 있으나 **사라지는 지점이 다르다** — soffice 가 만든 docx 에는 그림이 `word/media/` 에 **멀쩡히 남아 있고 pandoc 이 버린다**. LibreOffice 가 그림을 `w:pict` 로 감싸 내보내 pandoc docx 리더가 건너뛰기 때문이며, `--extract-media` 를 줘도 마크다운 참조는 0건이다. → `_docx_images()` 가 `word/_rels` 로 **문서순** 해석해 `_parse/images/` 로 추출한다.
+  - **위치는 최대한 살린다**: pandoc 이 일부 그림은 markdown `![]()` 가 아니라 **원시 HTML** `<img src="media/imageN.png">` 로 내보낸다(그래서 `![` grep 이 0건이었다 — 없는 게 아니라 형태가 달랐다). 그 참조를 `images/` 로 **relink** 하면 위치가 그대로 보존된다. 실측 h2: 표 안 그림 포함 2개 전부 인라인 보존, 인벤토리 0.
+  - **위치가 안 잡힌 나머지만** 본문 끝 `## 그림 (문서순 · 본문 위치 미상)` 인벤토리로. hwpx 와 달리 앵커가 없어 위치 재현이 불가한 경우가 남는다 — 목적은 위치가 아니라 **"그림이 있었다"는 사실과 실물의 보존**이다.
+  - 그림 0 인 문서엔 `images/` 를 만들지 않는다(빈 폴더 금지).
+- **★ hwp → hwpx 자동변환은 하지 않는다 (2026-09-13 검토·기각)**: "중요 문서는 hwpx" 규칙 때문에 hwp 를 hwpx 로 자동변환하고 싶어지지만, 실측·논리 모두 부정적이다.
+  - **LibreOffice 로는 애초에 못 만든다** — `soffice --convert-to hwpx` = `no export filter`, 명시 필터(`hwpx:HwpX Export`)를 줘도 저장 실패(`Io/Parameter 0x81a`), **odt→hwpx 도 동일**. H2Orestart 는 이름대로 **import 전용**(캐시에 `import_N.log` 만 존재).
+  - **설령 됐어도 의미가 없다** — `hwp →(LibreOffice importer)→ hwpx` 는 지금의 `hwp→docx→pandoc` 과 **같은 관문**을 통과하므로 복구되는 정보가 0이고 변환만 한 번 더 낀다. **hwpx 의 값어치는 확장자가 아니라 "한글이 직접 쓴 파일"이라는 데서 나온다.**
+  - **한글 COM 은 WSL2 에서 실제로 호출된다** — `HWPFrame.HwpObject` 등록됨(한컴오피스 2024, `13,0,0,564`), WSL interop 으로 `powershell.exe` 경유 생성·`Quit` 정상. 단 ⓐ **UNC(`\\wsl.localhost\...`) 경로는 못 연다** → Windows 로컬 temp 경유 복사 필요, ⓑ `RegisterModule("FilePathCheckDLL","FilePathChecker")` 가 `False` 인 동안 **`SaveAs` 가 예외 없이 조용히 False** 를 돌려준다(보안 DLL `regsvr32` 1회 등록 필요).
+  - **무인 자동화엔 넣지 않는다** — 한글은 GUI 앱이라 **Windows 사용자 세션에 의존**한다. parser-drain 은 밤에도 도는 systemd 무인 루프인데 잠금·로그아웃·재부팅 직후엔 COM 이 *조용히* 실패하고, 양 머신(ai4lt·kimbi)에 한글+DLL 이 모두 있어야 결과가 일치한다. → **중요 문서는 Dr. Ben 이 한컴에서 `.hwpx` 로 저장**(기존 수동 예외 유지), 일반 hwp 는 위 docx 이미지 추출로 충분.
 - **포맷→엔진정책은 전략 권위**: `mineru` 는 **PDF 전용**(`diff` 도 docling↔mineru 라 PDF 에서만 성립). 따라서 Phase 2 는 포맷 의존:
 
 | 포맷 | Phase 2 엔진 | Phase 3 |
 |---|---|---|
 | **PDF** | docling + mineru + diff (두 엔진 발산 의미있음) | diff 초과 페이지 Claude 검증 |
 | **office·odf·xlsx** (hwp 제외) | docling 단일 (mineru N/A·diff 불가) | 발산신호 없음 → 검증 옵션(표 spot-check) |
-| **hwp·hwpx** | **호스트 추출**(컨테이너 우회) — hwpx=OWPML 직독(+그림 `_parse/images/` 추출·마커), hwp=soffice→pandoc → `_parse/refined.md` 직접 | 단일소스 → refine no-op(자동 완료). 구형 hwp 거부 시 한컴 hwpx 수동. **pdf 병존 시 hwpx 파싱·pdf 보관** |
+| **hwp·hwpx** | **호스트 추출**(컨테이너 우회) — hwpx=OWPML 직독(+그림 `_parse/images/` 추출·위치 마커), hwp=soffice→pandoc(+중간 docx 그림 추출·relink) → `_parse/refined.md` 직접 | 단일소스 → refine no-op(자동 완료). 구형 hwp 거부 시 한컴 hwpx 수동. **pdf 병존 시 hwpx 파싱·pdf 보관** |
 | **이미지 (png·jpg·jpeg·webp·tiff)** | 로컬 OCR 단일 — **device-adaptive**(GPU 머신=VLM / CPU 머신=classic, 아래 §) → `_parse/ocr.md` | 단일 출력(diff 불가) → verdict=single 자동승격; 한글 표 의심 시 spot-check |
 | **오디오 (m4a·mp3·wav·ogg·opus·aac·amr)** | **호스트 전사**(faster-whisper 로컬 GPU, 아래 §) → `_parse/refined.md` 직접 | 단일소스 → refine no-op(HWP 동형). whisper venv 부재 머신은 루프째 skip |
 
