@@ -15,7 +15,7 @@ refined.md 를 곧장 쓴다. brainify `_refined()` 가 이 refined.md 를 소�
   각 파일에 대해 `<파일>_parse/refined.md` 생성(멱등: 있으면 skip), .parse-error 제거.
 반환코드: 전건 성공 0, 일부/전부 실패 1.
 """
-import sys, os, re, subprocess, tempfile, shutil, zipfile, socket, datetime
+import sys, os, re, struct, subprocess, tempfile, shutil, zipfile, socket, datetime
 import xml.etree.ElementTree as ET
 
 VAULT = os.environ.get("SB_DATA", os.path.expanduser("~/projects/2nd-brain-vault"))
@@ -40,6 +40,57 @@ def _owpml_hyperlink_url(field_begin):
     return None
 
 
+# 그림 컨텍스트 — parse_hwpx 가 파일마다 리셋. {id: (파일명, 폭, 높이)}
+_IMG = {"map": {}, "hits": 0}
+MIN_IMG_PX = 200          # 이 미만(긴 변)은 장식으로 보고 본문 마커 생략(추출은 함)
+
+
+def _img_size(data):
+    """BMP/JPEG/PNG 픽셀 크기 sniff (stdlib). 모르면 (0, 0)."""
+    try:
+        if data[:2] == b"BM":
+            w, h = struct.unpack_from("<ii", data, 18)
+            return abs(w), abs(h)
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            w, h = struct.unpack_from(">II", data, 16)
+            return w, h
+        if data[:2] == b"\xff\xd8":                    # JPEG — SOF0~SOF15 세그먼트 탐색
+            i = 2
+            while i < len(data) - 9:
+                if data[i] != 0xFF:
+                    i += 1
+                    continue
+                m = data[i + 1]
+                if 0xC0 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC):
+                    h, w = struct.unpack_from(">HH", data, i + 5)
+                    return w, h
+                i += 2 + struct.unpack_from(">H", data, i + 2)[0]
+    except Exception:
+        pass
+    return 0, 0
+
+
+def _owpml_img_marker(el):
+    """<hc:img binaryItemIDRef="imageN"/> → 누락 사실을 남기는 마커.
+
+    OWPML 은 그림을 BinData 바이너리로 품고 있어 텍스트 추출에서 **소리 없이 사라진다**.
+    PDF 경로(docling)가 `<!-- image -->` 를 남기는 것과 달리 흔적조차 없어, 도식이 있었다는
+    사실 자체를 잃는다(2026-09-13 실측: 제1차 원자력안전종합계획 hwpx 에 내용 도식 2개 —
+    계획 위상도·5개년 로드맵 — 이 통째로 유실, refined.md 의 이미지 표기 0건).
+    → 위치에 마커를 남기고 실물은 `_parse/images/` 로 꺼내 `Read` 로 볼 수 있게 한다.
+    """
+    ref = el.get("binaryItemIDRef")
+    name, w, h = _IMG["map"].get(ref, (ref or "?", 0, 0))
+    # 장식(글머리 아이콘·구분선 등)은 마커를 내지 않는다 — 실측상 72×72 아이콘 하나가
+    # 12번 반복돼 본문을 덮었다. 파일은 그대로 추출되므로 유실이 아니라 소음 제거다.
+    # 크기를 모르면(sniff 실패) 마커를 낸다 — 놓치는 쪽보다 시끄러운 쪽이 안전.
+    if w and h and max(w, h) < MIN_IMG_PX:
+        return ""
+    _IMG["hits"] += 1
+    dim = f" {w}×{h}" if w and h else ""
+    return f"\n<!-- image: images/{name}{dim} -->\n"
+
+
 def _owpml_ptext(p):
     """문단 텍스트 추출. HWPHYPERLINK 필드(fieldBegin~fieldEnd)는 마크다운 [텍스트](URL) 로 변환."""
     parts = []
@@ -48,6 +99,8 @@ def _owpml_ptext(p):
         ln = _ln(el.tag)
         if ln == "t":
             parts.append("".join(el.itertext()))
+        elif ln == "img":
+            parts.append(_owpml_img_marker(el))
         elif ln == "fieldBegin" and el.get("type") == "HYPERLINK":
             url = _owpml_hyperlink_url(el)
             if url:
@@ -112,10 +165,44 @@ def _owpml_walk(elem, out):
             _owpml_walk(ch, out)
 
 
+def _extract_images(z, parse_dir):
+    """BinData 이미지를 `_parse/images/` 로 꺼내고 {id: (파일명, 폭, 높이)} 맵을 만든다.
+
+    id→href 매핑 권위 = `Contents/content.hpf` 의 <opf:item id=".." href="BinData/..">.
+    Preview/PrvImage 는 한글이 만든 썸네일이라 제외(문서 내용 아님).
+    """
+    mapping = {}
+    try:
+        hpf = z.read("Contents/content.hpf").decode("utf-8", "ignore")
+    except KeyError:
+        hpf = ""
+    items = dict(re.findall(r'<opf:item[^>]*id="([^"]+)"[^>]*href="(BinData/[^"]+)"', hpf))
+    if not items:                                      # hpf 없으면 BinData 를 그대로
+        items = {os.path.splitext(os.path.basename(n))[0]: n
+                 for n in z.namelist() if n.startswith("BinData/")}
+    if not items:
+        return mapping
+    img_dir = os.path.join(parse_dir, "images")
+    os.makedirs(img_dir, exist_ok=True)
+    for iid, href in items.items():
+        try:
+            data = z.read(href)
+        except KeyError:
+            continue
+        base = os.path.basename(href)
+        with open(os.path.join(img_dir, base), "wb") as f:
+            f.write(data)
+        w, h = _img_size(data)
+        mapping[iid] = (base, w, h)
+    return mapping
+
+
 def parse_hwpx(path):
     """hwpx → 문단+표(HTML) markdown. 실패 시 '' (호출부가 docx 폴백)."""
+    _IMG["map"], _IMG["hits"] = {}, 0
     try:
         with zipfile.ZipFile(path) as z:
+            _IMG["map"] = _extract_images(z, path + "_parse")
             secs = sorted(n for n in z.namelist()
                           if re.match(r"Contents/section\d+\.xml", n))
             out = []
@@ -158,11 +245,14 @@ def vault_rel(path):
         return path
 
 
-def refined_frontmatter(src_path, engine):
+def refined_frontmatter(src_path, engine, images=0):
+    img = (f"images: {images}   # _parse/images/ 로 추출. 본문 <!-- image: ... --> 마커는 "
+           f"긴 변 {MIN_IMG_PX}px 이상만(장식 제외)\n") if images else ""
     return (f"---\n"
             f"source_pdf: {vault_rel(src_path)}\n"
             f"base_engine: {engine}\n"
             f"corrections: []\n"
+            f"{img}"
             f"generated: {TODAY}\n"
             f"host: {HOST}\n"
             f"refine_confidence: ok\n"
@@ -187,7 +277,8 @@ def process(path, tmp):
     if not body:
         open(os.path.join(parse_dir, ".parse-error"), "w").close()
         return False, "본문 추출 실패(soffice/pandoc/OWPML 모두)"
-    open(out, "w", encoding="utf-8").write(refined_frontmatter(path, engine) + body + "\n")
+    n_img = len(_IMG["map"]) if engine == "owpml" else 0
+    open(out, "w", encoding="utf-8").write(refined_frontmatter(path, engine, n_img) + body + "\n")
     err = os.path.join(parse_dir, ".parse-error")
     if os.path.exists(err):
         os.remove(err)                                 # 재실행 성공 시 실패마커 제거
