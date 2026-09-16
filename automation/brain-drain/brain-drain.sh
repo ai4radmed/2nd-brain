@@ -99,6 +99,9 @@ command -v "$CLAUDE_BIN" >/dev/null 2>&1 || { log "no claude: $CLAUDE_BIN"; exit
 SPENT="0"
 FAIL_REASON=""
 REFINED_N=0; BRAINIFIED_N=0; RENOTED_N=0; PRUNED_N=0; FAIL_N=0; BUDGET_HIT=0   # 활동 카운터(끝에서 Telegram 보고 판단)
+REFINE_ITEMS=(); BRAINIFY_ITEMS=(); RENOTE_ITEMS=(); PRUNE_ITEMS=()            # 처리 결과에 "어떤 항목" 나열용 라벨(2026-09-16 신설)
+ITEM_SEP=$'\x1e'
+join_items(){ local IFS="$ITEM_SEP"; echo -n "$*"; }   # $1... → \x1e 로 이어붙인 한 문자열
 budget_left(){ python3 -c "import sys;print(1 if float('$SPENT')<float('$CAP_GLOBAL') else 0)"; }
 
 # ── 연속 실패 항목 포기 (2026-08-07) ──────────────────────────────────────────
@@ -301,7 +304,8 @@ while IFS=$'\t' read -r action pdir; do
   [ -z "$action" ] && continue
   case "$action" in
     promote)
-      if python3 "$REFINE_PY" promote "$pdir" >>"$LOG" 2>&1; then log "promote ok: $pdir"; REFINED_N=$((REFINED_N+1))
+      if python3 "$REFINE_PY" promote "$pdir" >>"$LOG" 2>&1; then
+        log "promote ok: $pdir"; REFINED_N=$((REFINED_N+1)); REFINE_ITEMS+=("$(basename "$pdir" | sed 's/_parse$//')")
       else log "promote FAIL: $pdir"; FAIL_N=$((FAIL_N+1)); fi ;;
     refine)
       engine_run "/refine --headless \"$pdir\"" "$CAP_REFINE" && rc=0 || rc=$?
@@ -310,7 +314,11 @@ while IFS=$'\t' read -r action pdir; do
       if [ "${rc:-1}" = 1 ] && { [ -f "$pdir/refined.md" ] || [ -f "$SB_DATA/$pdir/refined.md" ]; }; then
         log "post-check: refined.md 존재 — 완료(비정상 종료)로 재집계: $pdir"; rc=0
       fi
-      case "${rc:-1}" in 0) REFINED_N=$((REFINED_N+1));; 2) BUDGET_HIT=1;; *) FAIL_N=$((FAIL_N+1));; esac ;;
+      case "${rc:-1}" in
+        0) REFINED_N=$((REFINED_N+1)); REFINE_ITEMS+=("$(basename "$pdir" | sed 's/_parse$//')");;
+        2) BUDGET_HIT=1;;
+        *) FAIL_N=$((FAIL_N+1));;
+      esac ;;
   esac
 done < <(python3 - <<PY
 import json
@@ -351,7 +359,7 @@ sys.exit(0 if hit and hit.get("already_brainified") else 1)
     fi
   fi
   case "${rc:-1}" in
-    0) fail_clear "$item"; BRAINIFIED_N=$((BRAINIFIED_N+1));;
+    0) fail_clear "$item"; BRAINIFIED_N=$((BRAINIFIED_N+1)); BRAINIFY_ITEMS+=("$(basename "$item")");;
     2) BUDGET_HIT=1;;   # 드레인 전체 예산 소진 — 항목 잘못이 아니므로 실패로 세지 않는다
     *) nf="$(fail_bump "$item" "${FAIL_REASON:-brainify 실패(rc=${rc:-1})}")"
        FAIL_N=$((FAIL_N+1))
@@ -388,7 +396,11 @@ while IFS= read -r note; do
   if [ "${rc:-1}" = 1 ] && grep -q "^renoted:" "$SB_DATA/$note" 2>/dev/null; then
     log "post-check: renoted 마커 존재 — 완료(비정상 종료)로 재집계: $note"; rc=0
   fi
-  case "${rc:-1}" in 0) RENOTED_N=$((RENOTED_N+1));; 2) BUDGET_HIT=1;; *) FAIL_N=$((FAIL_N+1));; esac
+  case "${rc:-1}" in
+    0) RENOTED_N=$((RENOTED_N+1)); RENOTE_ITEMS+=("$(basename "$note" .md)");;
+    2) BUDGET_HIT=1;;
+    *) FAIL_N=$((FAIL_N+1));;
+  esac
 done < <(python3 "$BRAINIFY_PY" renote-scan 2>>"$LOG" | python3 -c '
 import json, sys
 try:
@@ -464,6 +476,16 @@ try: print(json.load(sys.stdin).get('removed',0))
 except Exception: print(0)
 " 2>/dev/null || echo 0)"
 [ "${PRUNED_N:-0}" -gt 0 ] 2>/dev/null && log "prune-inbox: ${PRUNED_N}건 정리(내용 해시 동일 잔재)"
+while IFS= read -r it; do
+  [ -n "$it" ] && PRUNE_ITEMS+=("$it")
+done < <(printf '%s' "$prune_json" | python3 -c "
+import json,sys
+try:
+    for it in json.load(sys.stdin).get('removed_items', []):
+        print(it.get('item',''))
+except Exception:
+    pass
+" 2>/dev/null || true)
 
 log "=== brain-drain done (run=\$$SPENT) ==="
 
@@ -484,7 +506,12 @@ if [ "$ACTIVITY" -gt 0 ]; then
   OPENCLAW_JSON="$OPENCLAW_JSON" \
   python3 "$(dirname "${BASH_SOURCE[0]}")/drain-report.py" \
     --refine "$REFINED_N" --brainify "$BRAINIFIED_N" --renote "$RENOTED_N" --prune "$PRUNED_N" \
-    --fail "$FAIL_N" --budget "$BUDGET_HIT" --mode "2분 무인 드레인" --engine "$ENGINE_LABEL" "${EXTRA_ARGS[@]}" \
+    --fail "$FAIL_N" --budget "$BUDGET_HIT" --mode "무인 드레인" --engine "$ENGINE_LABEL" \
+    --refine-items "$(join_items "${REFINE_ITEMS[@]}")" \
+    --brainify-items "$(join_items "${BRAINIFY_ITEMS[@]}")" \
+    --renote-items "$(join_items "${RENOTE_ITEMS[@]}")" \
+    --prune-items "$(join_items "${PRUNE_ITEMS[@]}")" \
+    "${EXTRA_ARGS[@]}" \
     >>"$LOG" 2>&1 || log "tg: report failed (non-fatal — 드레인 결과는 유효)"
   log "tg: report sent (refine=$REFINED_N brainify=$BRAINIFIED_N renote=$RENOTED_N fail=$FAIL_N budget=$BUDGET_HIT)"
 fi

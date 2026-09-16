@@ -160,19 +160,33 @@ def format_link_stub_report(stubs: list[dict], now: datetime) -> str:
     return "\n".join(lines)
 
 
+def item_extra(names: list[str]) -> list[str]:
+    """처리 결과 줄 밑에 붙일 '어떤 항목이었는지' 목록 — 파싱오류 stub 목록과 같은 규약(MAX_LISTED)."""
+    extra = [f"      · {n[:60]}" for n in names[:MAX_LISTED]]
+    if len(names) > MAX_LISTED:
+        extra.append(f"      · …외 {len(names) - MAX_LISTED}건")
+    return extra
+
+
 def build_items(refine: int, brainify: int, renote: int, prune: int, fail: int, budget_hit: bool,
                 low_n: int, low_names: list[str], missing_n: int, low_ok: bool,
-                fail_reason: str = "") -> list[dict]:
+                fail_reason: str = "",
+                refine_items: list[str] | None = None, brainify_items: list[str] | None = None,
+                renote_items: list[str] | None = None, prune_items: list[str] | None = None) -> list[dict]:
     """(그룹번호, 제목, 항목들) 을 평평한 리스트로. 항목 = {group, label, status, extra}."""
     fail_label = f"처리 실패 {fail}건"
     if fail and fail_reason:
         fail_label += f" ({fail_reason})"
     items: list[dict] = [
-        {"g": 1, "gt": "처리 결과", "label": f"정제(refine) {refine}건", "status": "ok"},
-        {"g": 1, "gt": "처리 결과", "label": f"편입(brainify) {brainify}건", "status": "ok"},
-        {"g": 1, "gt": "처리 결과", "label": f"재작성(renote) {renote}건", "status": "ok"},
+        {"g": 1, "gt": "처리 결과", "label": f"정제(refine) {refine}건", "status": "ok",
+         "extra": item_extra(refine_items or [])},
+        {"g": 1, "gt": "처리 결과", "label": f"편입(brainify) {brainify}건", "status": "ok",
+         "extra": item_extra(brainify_items or [])},
+        {"g": 1, "gt": "처리 결과", "label": f"재작성(renote) {renote}건", "status": "ok",
+         "extra": item_extra(renote_items or [])},
         # 인박스 잔재 정리는 **비가역 삭제**라 0건이어도 항상 한 줄 낸다 — 조용히 지우지 않는다.
-        {"g": 1, "gt": "처리 결과", "label": f"인박스 잔재 정리 {prune}건", "status": "ok"},
+        {"g": 1, "gt": "처리 결과", "label": f"인박스 잔재 정리 {prune}건", "status": "ok",
+         "extra": item_extra(prune_items or [])},
         {"g": 1, "gt": "처리 결과",
          "label": fail_label, "status": "fail" if fail else "ok"},
         {"g": 1, "gt": "처리 결과",
@@ -276,14 +290,26 @@ def main() -> int:
     ap.add_argument("--fail", type=int, default=0)
     ap.add_argument("--fail-reason", type=str, default="", help="처리 실패 상세 사유")
     ap.add_argument("--budget", type=int, default=0, help="1=예산상한 도달")
-    ap.add_argument("--mode", type=str, default="2분 무인 드레인", help="실행 모드 라벨")
+    ap.add_argument("--mode", type=str, default="무인 드레인", help="실행 모드 라벨")
     ap.add_argument("--engine", type=str, default="Gemini 2.5 Flash", help="사용 AI 엔진 이름")
+    ITEM_SEP = "\x1e"
+    ap.add_argument("--refine-items", type=str, default="", help=f"정제한 항목 라벨({ITEM_SEP!r} 구분)")
+    ap.add_argument("--brainify-items", type=str, default="", help=f"편입한 항목 라벨({ITEM_SEP!r} 구분)")
+    ap.add_argument("--renote-items", type=str, default="", help=f"재작성한 항목 라벨({ITEM_SEP!r} 구분)")
+    ap.add_argument("--prune-items", type=str, default="", help=f"정리한 항목 라벨({ITEM_SEP!r} 구분)")
     ap.add_argument("--no-send", action="store_true", help="문안만 출력(발송 안 함)")
     a = ap.parse_args()
 
+    def split_items(s: str) -> list[str]:
+        return [x for x in s.split(ITEM_SEP) if x.strip()]
+
     low_n, low_names, missing_n, low_ok, low_items = collect_low()
     items = build_items(a.refine, a.brainify, a.renote, a.prune, a.fail, bool(a.budget),
-                        low_n, low_names, missing_n, low_ok, a.fail_reason)
+                        low_n, low_names, missing_n, low_ok, a.fail_reason,
+                        refine_items=split_items(a.refine_items),
+                        brainify_items=split_items(a.brainify_items),
+                        renote_items=split_items(a.renote_items),
+                        prune_items=split_items(a.prune_items))
     text = format_report(items, datetime.now(timezone.utc), a.mode, a.engine)
     print(text)
 
