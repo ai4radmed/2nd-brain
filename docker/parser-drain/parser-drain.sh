@@ -346,6 +346,68 @@ while IFS= read -r f; do
   fi
 done < <(candidates xls)
 
+# ── PPT/DOC(구형 바이너리 Office): 호스트 soffice→PDF 변환 후 PDF 파이프라인 재사용 ──
+# 근거(2026-09-17 KIRAMS selffwd ppt 실측): candidates() 화이트리스트에 .ppt/.doc 가 애초에
+# 없어 시도조차 안 되고(_parse/ 자체 미생성) brainify 가 low-confidence 스텁을 만들어 매 틱
+# "파싱오류" 경고가 울렸다. hwp 가 겪던 것과 같은 포맷 커버리지 공백.
+# 다만 hwp(soffice→docx→pandoc 텍스트화)와 달리 슬라이드·구형 워드는 표보다 레이아웃·이미지가
+# 중요해 **soffice→PDF 변환 후 기존 듀얼엔진(docling+mineru)+diff 파이프라인에 태운다** —
+# 새 파서를 짜지 않고 이미 검증된 PDF 인프라를 재사용. 변환 중간산출물은 `<원본>_parse/source.pdf`
+# 로 남겨 투명성 유지(수동 열람·디버그 가능).
+while IFS= read -r f; do
+  backlog_stop "$f" && { log "cap($MAX_PER_RUN) 도달 — ppt/doc 백로그 중단"; break; }
+  [ -f "$f" ] || { log "원본 사라짐(다른 단계가 이동·삭제) — skip: $f"; continue; }
+  out="${f}_parse"
+  [ -s "$out/diff.json" ] && continue             # 멱등 (일반 pdf 루프와 동일 기준)
+  skip_bulk "$out" && { nbulk=$((nbulk+1)); continue; }
+  if bulkwhy="$(is_bulk "$f")"; then
+    clear_error "$out"; log "skip(bulk): $f — $bulkwhy"; mark_bulk "$out" "$f" "$bulkwhy"
+    nbulk=$((nbulk+1)); continue
+  fi
+  skip_failed "$out" && { ferr=$((ferr+1)); continue; }
+  mkdir -p "$out"
+  ext="${f##*.}"; ext="${ext,,}"
+  log "parse($ext→pdf,host): $f"; attempt_one "$f"
+
+  if [ ! -s "$out/source.pdf" ]; then
+    if timeout "$ENGINE_TIMEOUT" soffice --headless --convert-to pdf --outdir "$out" "$f" \
+         >>"$LOG" 2>&1; then
+      conv="$out/$(basename "${f%.*}").pdf"
+      if [ -s "$conv" ]; then
+        mv -f "$conv" "$out/source.pdf"
+      else
+        LAST_ERR="soffice 변환 산출물 없음/빈 파일"
+        log "FAIL $ext-convert(host,empty): $f"; mark_error "$out" "$ext-convert" "$f"; continue
+      fi
+    else
+      LAST_ERR="soffice 변환 실패(구형 $ext) — 설치 확인: command -v soffice"
+      log "FAIL $ext-convert(host): $f"; mark_error "$out" "$ext-convert" "$f"; continue
+    fi
+  fi
+
+  cout="${out/#$SB_DATA/$CMNT}"
+  cpath="$cout/source.pdf"
+
+  if [ ! -s "$out/docling.json" ]; then
+    if ! run_to "$out/docling.json" parse-docling "$cpath"; then
+      log "FAIL docling($ext→pdf): $f — $LAST_ERR"; mark_error "$out" docling "$f"; continue
+    fi
+  fi
+  if [ ! -s "$out/mineru.json" ]; then
+    run_to "$out/mineru.json" parse-mineru "$cpath" || log "WARN mineru 실패(docling-only): $f"
+  fi
+  if [ -s "$out/mineru.json" ] && [ ! -s "$out/diff.json" ]; then
+    if run_to "$out/diff.json" diff "$cout/docling.json" "$cout/mineru.json"; then
+      v=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('verdict','?'))" "$out/diff.json" 2>/dev/null || echo '?')
+      log "ok(dual,verdict=$v,$ext→pdf): $f"; clear_error "$out"; count_one "$f"
+    else
+      log "WARN diff 실패(docling+mineru는 있음): $f"; clear_error "$out"; count_one "$f"
+    fi
+  else
+    log "ok(docling-only,$ext→pdf, mineru 없음): $f"; clear_error "$out"; count_one "$f"
+  fi
+done < <(candidates ppt doc)
+
 # ── PDF·docx·xlsx: 컨테이너(2nd-brain-parser) 경로 ──
 while IFS= read -r f; do
   backlog_stop "$f" && { log "cap($MAX_PER_RUN) 도달 — pdf/docx/xlsx 백로그 중단"; break; }
