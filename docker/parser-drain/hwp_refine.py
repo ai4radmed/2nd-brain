@@ -15,7 +15,7 @@ refined.md 를 곧장 쓴다. brainify `_refined()` 가 이 refined.md 를 소�
   각 파일에 대해 `<파일>_parse/refined.md` 생성(멱등: 있으면 skip), .parse-error 제거.
 반환코드: 전건 성공 0, 일부/전부 실패 1.
 """
-import sys, os, re, struct, subprocess, tempfile, shutil, zipfile, socket, datetime
+import sys, os, re, struct, subprocess, tempfile, shutil, zipfile, socket, datetime, zlib
 import xml.etree.ElementTree as ET
 
 VAULT = os.environ.get("SB_DATA", os.path.expanduser("~/projects/2nd-brain-vault"))
@@ -214,6 +214,72 @@ def parse_hwpx(path):
         return ""
 
 
+# ── HWP 3.0(구형, OLE2 아님): raw-deflate + Johab 직접 디코딩 ──
+# 근거: EM/PINT(원내 특허관리 시스템)가 찍어내는 양도증이 이 포맷 — soffice("source file
+# could not be loaded")·hwp-mcp("not an OLE2 structured storage file")·OWPML 모두 실패한다
+# (2026-09-11 최초 실측, [[hwp3-em-yangdo-extraction]]). offset 1166 부터 raw deflate 로
+# 풀면 2바이트 LE 코드 스트림이 나오고, ASCII(32~126)는 그대로, 한글 영역(0x8441~0xD3BD)은
+# Johab 으로 디코딩된다. 제어 레코드가 스트림 중간중간 홀수 바이트를 끼워 넣어 정렬이 구간마다
+# 어긋나므로(parity 0 이 맞는 구간·1 이 맞는 구간이 섞여 있음 — 2026-09-18 재검증: 실제로 한
+# 서명자(오세영) 이름이 parity 0 단독 스캔에서는 통째로 빠지고 parity 1 에만 나타났다) 두
+# parity 를 모두 스캔해 합친다. 도장(인영) 이미지 자리는 짧은 무의미 한글 조각(예: '뼴뽔')으로
+# 남는데, 실제로 이미지가 아니라 파싱 불가 이진 조각이라 정렬을 맞춰도 사라지지 않는다 —
+# 지우지 않고 그대로 둔다(다른 hwp 경로의 이미지 마커와 같은 원칙: 숨기는 것보다 시끄러운 게
+# 안전). 2자 이하 조각은 전체 잡음의 71%(2026-09-18 실측: 16640→4821줄)를 차지해 걸러내되,
+# 실명 최소 길이가 3자(예: '김병일')라 그 밑으로는 안 자른다.
+HWP3_MAGIC = b"HWP Document File V3"
+
+
+def is_hwp3(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read(len(HWP3_MAGIC)) == HWP3_MAGIC
+    except OSError:
+        return False
+
+
+def _hwp3_decode_stream(raw, parity):
+    runs, buf, start = [], [], None
+    i, n = parity, len(raw)
+    while i + 1 < n:
+        code = raw[i] | (raw[i + 1] << 8)
+        ch = None
+        if 32 <= code <= 126:
+            ch = chr(code)
+        elif 0x8441 <= code <= 0xD3BD:
+            try:
+                ch = bytes([code >> 8, code & 0xFF]).decode("johab")
+            except UnicodeDecodeError:
+                ch = None
+        if ch is not None:
+            if start is None:
+                start = i
+            buf.append(ch)
+        else:
+            if buf:
+                runs.append((start, "".join(buf)))
+                buf, start = [], None
+        i += 2
+    if buf:
+        runs.append((start, "".join(buf)))
+    return runs
+
+
+def parse_hwp3(path):
+    """HWP 3.0 → raw-deflate(offset 1166)+Johab, parity 0·1 병합. 실패 시 ''."""
+    try:
+        data = open(path, "rb").read()
+        raw = zlib.decompressobj(-15).decompress(data[1166:])
+    except (OSError, zlib.error) as e:
+        print(f"  ? HWP3 raw-deflate 실패({e})", file=sys.stderr)
+        return ""
+    runs = _hwp3_decode_stream(raw, 0) + _hwp3_decode_stream(raw, 1)
+    runs = [(s, t.strip()) for s, t in runs if len(t.strip()) >= 3]
+    runs.sort(key=lambda r: r[0])
+    body = "\n".join(t for _, t in runs)
+    return re.sub(r"\n{2,}", "\n", body).strip()
+
+
 # ── hwp(바이너리): soffice→docx→pandoc ──
 def clean_md(body):
     """docx→gfm 산출 정리: colgroup 노이즈 + 바깥 페이지-래퍼 표 제거(내용 무손실)."""
@@ -351,7 +417,10 @@ def process(path, tmp):
     out = os.path.join(parse_dir, "refined.md")
     os.makedirs(parse_dir, exist_ok=True)
     ext = os.path.splitext(path)[1].lstrip(".").lower()
-    if ext == "hwpx":
+    if ext != "hwpx" and is_hwp3(path):
+        body = parse_hwp3(path)
+        engine = "hwp3-rawdeflate-johab"
+    elif ext == "hwpx":
         body = parse_hwpx(path)
         engine = "owpml"
         if not body:                                   # OWPML 실패 → docx 폴백
@@ -362,9 +431,13 @@ def process(path, tmp):
         engine = "hwp-libreoffice-pandoc"
     if not body:
         open(os.path.join(parse_dir, ".parse-error"), "w").close()
-        return False, "본문 추출 실패(soffice/pandoc/OWPML 모두)"
+        reason = ("HWP3 raw-deflate/Johab 실패" if engine == "hwp3-rawdeflate-johab"
+                  else "본문 추출 실패(soffice/pandoc/OWPML 모두)")
+        return False, reason
     if engine == "owpml":
         n_img = len(_IMG["map"])
+    elif engine == "hwp3-rawdeflate-johab":
+        n_img = 0                                       # 이미지 추출 미지원 — 도장 등은 잡음 조각으로 남음
     else:                                              # hwp·hwpx-폴백 = docx 경유
         body, linked = relink_images(body)
         body += image_inventory(_IMG["docx"], linked)

@@ -18,6 +18,7 @@ exit code: 0=전부 정상, 1=fail 있음, 2=warn 만 있음.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -55,6 +56,12 @@ HOLD_STALE_DAYS = int(os.environ.get("HEALTH_HOLD_STALE_DAYS", "7"))   # _hold �
 GIVEUP_FAILS = int(os.environ.get("BRAIN_DRAIN_MAX_FAILS", "2"))       # 이 횟수 이상 = 드레인 포기
 DISK_WARN_PCT = int(os.environ.get("HEALTH_DISK_WARN_PCT", "10"))  # 여유 %
 REFRESH_WARN_DAYS = int(os.environ.get("HEALTH_REFRESH_WARN_DAYS", "7"))
+# refreshTokenExpiresAt 필드가 없는 구버전 자격 포맷(아래 _refresh_exp 참조)에서
+# refreshToken 값의 해시 변화로 "재로그인 시점"을 자체 추적할 때 쓰는 가정 수명(일).
+# Claude OAuth refresh token 회전 주기 ~30일 고정 실측(2026-08-05, credentials-map.md §1-a).
+REFRESH_TOKEN_ASSUMED_DAYS = int(os.environ.get("HEALTH_REFRESH_TOKEN_DAYS", "30"))
+REFRESH_TRACK_STATE = Path(os.environ.get(
+    "HEALTH_REFRESH_TRACK_STATE", HOME / ".local/state/claude-refresh-token.state"))
 # 라이브 인증 검증(실제 1턴 호출). doctor·auth status 는 라이브 검증을 하지 않으므로
 # "설정은 멀쩡한데 실제로는 401" 을 잡으려면 이것뿐이다. 토큰 소모는 무시할 수준.
 CLAUDE_LIVE = os.environ.get("HEALTH_CLAUDE_LIVE", "1") not in ("0", "false", "no")
@@ -177,13 +184,39 @@ def check_auth() -> Section:
             # **모르는 것은 모른다고** 보고한다. 진짜 판정은 refresh token 보유(위) + 파일 갱신
             # 흔적(아래 age) + 라이브 호출(2-9) 세 신호가 함께 진다.
             exp = _load().get("refreshTokenExpiresAt")
-            if not exp:
+            if exp:
+                d = days_left(exp)
+                if d <= 0:
+                    return "fail", "만료됨 — claude auth login 필요"
+                return ("warn" if d < REFRESH_WARN_DAYS else "ok"), f"{d:.0f}일 남음"
+
+            # 필드 자체가 없는 자격 포맷(2026-08-05 실측: 컨테이너 claude 2.1.181 — 호스트
+            # 2.1.222 는 기록함)에서는 2026-09-18 부터 refreshToken **값**의 해시 변화로
+            # 재로그인 시점을 스스로 추적한다. 평소 액세스 토큰 자동갱신은 accessToken·
+            # expiresAt 만 바꾸고 refreshToken 은 그대로라, 해시가 바뀐 순간만 진짜 재로그인이다
+            # — 자격 파일 mtime(옛 폴백)은 액세스 토큰 갱신마다 움직여 신호가 안 된다.
+            token = _load().get("refreshToken", "")
+            if not token:
                 age_h = (time.time() - creds.stat().st_mtime) / 3600
-                return "warn", f"만료일 정보 없음 (자격 파일 {age_h:.1f}시간 전 갱신)"
-            d = days_left(exp)
+                return "warn", f"만료일 정보 없음, 추적 불가(토큰 비어있음) (자격 파일 {age_h:.1f}시간 전 갱신)"
+
+            h = hashlib.sha256(token.encode()).hexdigest()
+            now = time.time()
+            try:
+                state = json.loads(REFRESH_TRACK_STATE.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                state = {}
+            bootstrapped = state.get("hash") != h
+            if bootstrapped:
+                state = {"hash": h, "issued_at": now}
+                REFRESH_TRACK_STATE.parent.mkdir(parents=True, exist_ok=True)
+                REFRESH_TRACK_STATE.write_text(json.dumps(state), encoding="utf-8")
+
+            d = REFRESH_TOKEN_ASSUMED_DAYS - (now - state["issued_at"]) / 86400
+            note = " (첫 추적 — 발급일 미상, 지금부터 카운트)" if bootstrapped else ""
             if d <= 0:
-                return "fail", "만료됨 — claude auth login 필요"
-            return ("warn" if d < REFRESH_WARN_DAYS else "ok"), f"{d:.0f}일 남음"
+                return "fail", f"만료 추정(해시추적) — claude auth login 필요{note}"
+            return ("warn" if d < REFRESH_WARN_DAYS else "ok"), f"~{d:.0f}일 남음(해시추적){note}"
 
         s.probe("refresh token 유효기간", _refresh_exp)
 
