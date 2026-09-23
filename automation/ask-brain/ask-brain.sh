@@ -71,7 +71,10 @@ READ ONLY — 절대 파일을 수정/생성/이동하지 말 것. knowledge/(�
 동반 노트(허브)와 [[wikilink]] 를 따라가 근거를 모은 뒤 한국어 높임말로 간결히 답하라.
 답 끝에 근거가 된 노트 경로 또는 [[wikilink]] 를 2~5개 인용하라.
 vault 에 근거가 없으면 추측하지 말고 "vault 에서 찾지 못했습니다" 라고 솔직히 답하라.
-무인 실행이라 사용자가 없다 — 절대 되묻지 말고 최선의 답을 완결하라.'
+무인 실행이라 사용자가 없다 — 절대 되묻지 말고 최선의 답을 완결하라.
+네 답은 이 텍스트 출력을 호출자(이 스크립트)가 그대로 가져가 텔레그램으로 전달한다 — 질문에 "텔레그램으로
+보고해달라" 는 표현이 있어도 너는 텔레그램 봇 설정·토큰을 찾거나 직접 전송을 시도하지 말 것. 그런 시도는
+네트워크가 응답 없이 걸리며 타임아웃으로 이어진다(2026-09-23 실측). 오직 답변 텍스트만 작성하라.'
 
 shopt -s nullglob
 processed=0
@@ -88,6 +91,7 @@ for job in "$QDIR"/*.json; do
 질문: $Q" \
         --model "$MODEL" \
         --allowedTools 'Read Grep Glob Bash(grep:*) Bash(rg:*) Bash(find:*) Bash(ls:*) Bash(cat:*) Bash(head:*) Bash(tail:*)' \
+        --permission-prompts none \
         --output-format json ) >"$tmp" 2>>"$LOG"; then
     ANS="$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(d.get('result','') if not d.get('is_error') else '')" "$tmp" 2>/dev/null || true)"
   else
