@@ -346,6 +346,29 @@ while IFS= read -r f; do
   fi
 done < <(candidates xls)
 
+# ── RTF: 호스트-측 pandoc 직독 (2026-09-28 신설) ──
+# 근거: brainify `PARSEABLE` 은 .rtf 를 파싱 대상으로 인정하는데 이 화이트리스트엔 없었다 —
+#   두 단계의 잣대 불일치. 그 결과 rtf 첨부 노트는 `_parse` 가 영영 안 생겨 `parse_confidence:low`
+#   로 남고, renote-scan 이 no_source 로 분류해 무인 드레인 보고에 "파싱오류 stub" 경고가
+#   매번 떴다(실측: IAEA RAS6097 참가자 명단 rtf 4개 중 2노트). docling 은 RTF 를 안 받는다.
+#   pandoc 은 RTF 네이티브 + 호스트에 기설치라 컨테이너·GPU 불필요.
+RTF_REFINE="$REPO/docker/parser-drain/rtf_refine.py"
+while IFS= read -r f; do
+  backlog_stop "$f" && { log "cap($MAX_PER_RUN) 도달 — rtf 백로그 중단"; break; }
+  [ -f "$f" ] || { log "원본 사라짐(다른 단계가 이동·삭제) — skip: $f"; continue; }
+  out="${f}_parse"
+  [ -s "$out/refined.md" ] && continue           # 멱등
+  skip_bulk "$out" && { nbulk=$((nbulk+1)); continue; }
+  skip_failed "$out" && { ferr=$((ferr+1)); continue; }
+  log "parse(rtf,host): $f"; attempt_one "$f"
+  if python3 "$RTF_REFINE" "$f" >>"$LOG" 2>&1; then
+    log "ok(rtf,host): $f"; clear_error "$out"; count_one "$f"
+  else
+    LAST_ERR="$(tail -3 "$LOG" | tr "\n" " " | tail -c 300)"
+    log "FAIL rtf(host): $f"; mark_error "$out" rtf "$f"
+  fi
+done < <(candidates rtf)
+
 # ── PPT/DOC(구형 바이너리 Office): 호스트 soffice→PDF 변환 후 PDF 파이프라인 재사용 ──
 # 근거(2026-09-17 KIRAMS selffwd ppt 실측): candidates() 화이트리스트에 .ppt/.doc 가 애초에
 # 없어 시도조차 안 되고(_parse/ 자체 미생성) brainify 가 low-confidence 스텁을 만들어 매 틱
