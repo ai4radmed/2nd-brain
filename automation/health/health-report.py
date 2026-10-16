@@ -86,6 +86,7 @@ PLAIN_PREFIX = [
     ("컨테이너 존재", "게이트웨이 컨테이너 존재"),
     ("gog 계정 인증", "구글 계정 로그인"),
     ("cron: ", "예약 실행: "),
+    ("Gmail '", "지메일 '"),
     ("유닛 활성: ", "자동 작업 켜짐: "),
     ("마지막 실행 결과: ", "지난 실행 결과: "),
 ]
@@ -105,12 +106,52 @@ def item_line(it: dict, style: str) -> list[str]:
     """세부 항목 줄. 정상은 이름만(수치는 소음), 경고·문제는 사유까지."""
     mark = MARK.get(it["status"], MARK["fail"])
     tail = f" — {it['detail']}" if it["status"] != "ok" and it.get("detail") else ""
+    if it["status"] == "fail" and it.get("streak", 0) >= 2:
+        tail += f" ({it['streak']}일째)"
     plain = plain_label(it["label"])
     if style == "tech" or not plain:
         return [f"{it['no']}. {it['label']}{tail} {mark}"]
     if style == "both":
         return [f"{it['no']}. {it['label']}{tail} {mark}", f"      {plain}"]
     return [f"{it['no']}. {plain}{tail} {mark}"]
+
+
+ESCALATE_DAYS = int(os.environ.get("HEALTH_ESCALATE_DAYS", "3"))
+OPENCLAW_HOME = os.environ.get("OPENCLAW_HOME", "~/.openclaw")
+
+# [긴급] 블록의 "무엇을 할지". 라벨 접두 일치, 먼저 맞는 것 하나. 없으면 안내 줄 생략.
+# 게이트웨이 Claude 자격 경로는 머신마다 다르다(credentials-map §1-a) — OPENCLAW_HOME 으로 따른다.
+_RELOGIN = (f"Dr. Ben 이 터미널에서 CLAUDE_CONFIG_DIR={OPENCLAW_HOME}/.claude claude auth login 후 "
+            f"python3 {Path(__file__).resolve().with_name('health-check.py')} --mark-login")
+ACTION_HINTS = [
+    ("refresh token", f"조치: {_RELOGIN}"),   # 보유·유효기간 둘 다
+    ("access token", f"조치: {_RELOGIN}"),
+    ("Claude 라이브 호출", f"조치: {_RELOGIN}"),
+    ("Gmail '", "조치: poll 잡 상태·자격 확인 후, 정체가 길면 Gmail 라벨 수동 점검"),
+    ("cron: ", f"조치: 마지막 오류가 401 이면 {_RELOGIN}, 아니면 openclaw cron runs 로 원인 확인"),
+]
+
+
+def escalated_items(groups: list) -> list:
+    """ESCALATE_DAYS 일 이상 계속된 [x] — 아침 보고의 긴 목록에 묻히지 않게 맨 위로 올릴 대상."""
+    return [it for g in groups for it in g["items"]
+            if it["status"] == "fail" and it.get("streak", 0) >= ESCALATE_DAYS]
+
+
+def escalation_block(items: list) -> list[str]:
+    lines = [f"[긴급] {ESCALATE_DAYS}일 이상 계속된 문제 {len(items)}건 — 같은 문제가 반복 보고되고 있습니다"]
+    for it in sorted(items, key=lambda x: -x["streak"]):
+        name = plain_label(it["label"]) or it["label"]
+        lines.append(f"  {it['no']}. {name} — {it['streak']}일째 [x]")
+    shown = set()
+    for it in items:
+        for pre, hint in ACTION_HINTS:
+            if it["label"].startswith(pre):
+                if hint not in shown:
+                    shown.add(hint)
+                    lines.append(f"  {hint}")
+                break
+    return lines
 
 
 def build_groups(summary: dict) -> tuple[list, int, int, list]:
@@ -171,8 +212,13 @@ def format_report(summary: dict | None, style: str = "plain") -> str:
     warn_n = len(problems) - fail_n
 
     engine = os.environ.get("HEALTH_ENGINE", "Claude 3.5 Sonnet")
-    lines.append(headline(summary.get("host", "?"), total, ok, fail_n, warn_n, engine))
+    esc = escalated_items(groups)
+    head = headline(summary.get("host", "?"), total, ok, fail_n, warn_n, engine)
+    lines.append(head.replace("[2nd-brain 헬스체크]", "[2nd-brain 헬스체크][긴급]", 1) if esc else head)
     lines.append(format_kst(summary.get("checkedAt", "")))
+    if esc:
+        lines.append("")
+        lines.extend(escalation_block(esc))
 
     for g in groups:
         lines.append("")

@@ -66,6 +66,30 @@
 - **extra.yml env 생존** — `setup.sh` 재실행은 이 파일을 volumes-only 로 재생성해
   env 블록(PATH·CLAUDE_CONFIG_DIR·GMAIL·GOG)을 통째로 날린다. 2026-07 캡처 회귀의 원인.
 
+### 2026-10-16 추가 — "알림은 갔는데 14일간 아무도 못 움직인" 사고
+
+2026-10-02~10-16 게이트웨이 Claude 로그인이 죽어 `gmail-label-actions-poll` 이 316회 연속
+실패했고 Gmail `1 저장` 에 223건이 쌓였다. **이 헬스체크는 10-03 아침부터 원인(`refresh token
+EMPTY`·라이브 호출 실패)을 정확히 14번 보고했다** — 감지는 됐고, 반복이 신호가 되지 못했다.
+같은 [x] 가 매일 33줄 목록 속 같은 자리에 같은 모양으로 올라와 "늘 있는 빨간 줄"이 됐다.
+
+- **Gmail 라벨 적체** (`Gmail '1 저장' 적체`, 6번 영역) — 호스트 gog 로 라벨 스레드 수를 센다.
+  `HEALTH_GMAIL_BACKLOG_WARN`(30) 초과 = 경고, 처음 관측 후 `HEALTH_GMAIL_STUCK_HOURS`(20h) 넘게
+  남은 스레드 = 문제. 나이는 메일 날짜가 아니라 **처음 관측 시각**(2024 소급 작업 오탐 방지).
+  상태 `~/.local/state/brain-health-gmail-backlog.json`. gog 는 systemd 에 keyring 비번이 없어
+  `~/.config/gogcli/.keyring-password` 에서 읽어 넣는다(`host_gog_env`).
+- **cron 연속 실패** — `[x]` 사유에 `N회 연속 실패 · 마지막 오류` 를 덧붙인다.
+- **에스컬레이션** — [x] 가 `HEALTH_ESCALATE_DAYS`(3)일 이상 이어지면 항목에 `(N일째)` 를 붙이고,
+  보고 **맨 위**에 `[긴급]` 블록(항목·일수·조치 한 줄)을 올린다. 머리줄도 `[…][긴급]`.
+  연속일수 상태 `~/.local/state/brain-health-streak.json`(PC 가 꺼져 빠진 날 3일까지는 이어서 셈).
+- **사전 만료 경고 수리** — 옛 `refresh token 유효기간` 의 "refresh token 해시 변화 = 재로그인"
+  추적은 틀렸다(값이 **매일 바뀌어** 매일 "첫 추적 ~30일 남음" 으로 초기화 → 10-02 만료 전 경고 불가).
+  이제: ① 자격에 `refreshTokenExpiresAt` 이 있으면 그 값(권위 — 2026-10-16 로그인은 +28.6일,
+  11-13 18:42 UTC), ② 없으면 `~/.local/state/claude-login.state` 의 **기록된 로그인 시점 + 28일**.
+  기록은 최초·빈 토큰 복구 관측·수동 `python3 health-check.py --mark-login` 으로만 바뀐다
+  (자발적 사전 재로그인 뒤엔 `--mark-login` 필수 — 파일만으론 로그인과 평소 갱신을 구별 못 함).
+  **7일 미만 남으면 fail** 이라 3일 연속 시 `[긴급]` 으로 올라간다(조치 줄에 재로그인+mark 명령 포함).
+
 ## 보고 문안 규약
 
 ```

@@ -57,14 +57,26 @@ GIVEUP_FAILS = int(os.environ.get("BRAIN_DRAIN_MAX_FAILS", "2"))       # 이 횟
 DISK_WARN_PCT = int(os.environ.get("HEALTH_DISK_WARN_PCT", "10"))  # 여유 %
 REFRESH_WARN_DAYS = int(os.environ.get("HEALTH_REFRESH_WARN_DAYS", "7"))
 # refreshTokenExpiresAt 필드가 없는 구버전 자격 포맷(아래 _refresh_exp 참조)에서
-# refreshToken 값의 해시 변화로 "재로그인 시점"을 자체 추적할 때 쓰는 가정 수명(일).
-# Claude OAuth refresh token 회전 주기 ~30일 고정 실측(2026-08-05, credentials-map.md §1-a).
-REFRESH_TOKEN_ASSUMED_DAYS = int(os.environ.get("HEALTH_REFRESH_TOKEN_DAYS", "30"))
-REFRESH_TRACK_STATE = Path(os.environ.get(
-    "HEALTH_REFRESH_TRACK_STATE", HOME / ".local/state/claude-refresh-token.state"))
+# 기록해 둔 로그인 시점부터 세는 가정 수명(일). 문서상 ~30일(credentials-map.md §1-a)이지만
+# 게이트웨이 실측은 28.4일(2026-09-04 로그인 → 10-02 만료)이라 28 로 둔다 — 일찍 경고하는 쪽이 안전.
+REFRESH_TOKEN_ASSUMED_DAYS = int(os.environ.get("HEALTH_REFRESH_TOKEN_DAYS", "28"))
 # 라이브 인증 검증(실제 1턴 호출). doctor·auth status 는 라이브 검증을 하지 않으므로
 # "설정은 멀쩡한데 실제로는 401" 을 잡으려면 이것뿐이다. 토큰 소모는 무시할 수준.
 CLAUDE_LIVE = os.environ.get("HEALTH_CLAUDE_LIVE", "1") not in ("0", "false", "no")
+
+# Gmail 라벨 적체(2026-10-16 신설 — 10-02~10-16 게이트웨이 401 로 "1 저장" 223건이 쌓였는데
+# 인박스(sources/00_inbox) 점검만 있어 Gmail 쪽 적체는 보이지 않았다).
+STATE_DIR = Path(os.environ.get("HEALTH_STATE_DIR", HOME / ".local/state"))
+GMAIL_LABEL = os.environ.get("HEALTH_GMAIL_LABEL", "1 저장")
+GMAIL_BACKLOG_WARN = int(os.environ.get("HEALTH_GMAIL_BACKLOG_WARN", "30"))   # 건수 경고 임계
+# "하루 이상 정체" 판정 시간. 점검이 하루 1회(06:40±지터)라 24 로 두면 23.99h 로 한 번 놓친다.
+GMAIL_STUCK_HOURS = float(os.environ.get("HEALTH_GMAIL_STUCK_HOURS", "20"))
+GMAIL_BACKLOG_STATE = STATE_DIR / "brain-health-gmail-backlog.json"
+# 게이트웨이 Claude 로그인 시점 기록({"login_at": epoch, "was_empty": bool}) — _refresh_exp 참조.
+LOGIN_STATE = Path(os.environ.get("HEALTH_LOGIN_STATE", STATE_DIR / "claude-login.state"))
+# 같은 [x] 가 며칠째 이어지는지 — 보고 맨 위 [긴급] 에스컬레이션의 근거(health-report.py).
+STREAK_STATE = STATE_DIR / "brain-health-streak.json"
+STREAK_GAP_DAYS = 3        # PC 가 꺼져 점검이 빠진 날이 이만큼까지는 "계속"으로 본다
 
 TIMEOUT = int(os.environ.get("HEALTH_TIMEOUT", "30"))
 
@@ -109,6 +121,58 @@ class Section:
 
 def days_left(epoch_ms: int) -> float:
     return (epoch_ms / 1000 - time.time()) / 86400
+
+
+def host_gog_env() -> dict:
+    """호스트 gog 호출용 env. systemd 유닛엔 GOG_KEYRING_PASSWORD 가 없어 keyring 이 TTY 를 찾다
+    조용히 죽는다(mediawatch-health 가 2026-08-27 부터 겪은 것과 같은 함정) — 호스트 정본
+    파일(600)에서 실행 시점에 읽어 넣는다. credentials-map.md §1-a 참조."""
+    env = os.environ.copy()
+    if not env.get("GOG_KEYRING_PASSWORD"):
+        pw = HOME / ".config/gogcli/.keyring-password"
+        if pw.is_file():
+            env["GOG_KEYRING_PASSWORD"] = pw.read_text(encoding="utf-8").strip()
+    env.setdefault("GOG_KEYRING_BACKEND", "file")
+    return env
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def apply_streaks(sections: list) -> None:
+    """[x] 항목마다 "며칠째 계속"을 세어 item["streak"] 에 넣는다(보고가 읽는다).
+    2026-10-02~10-16: 같은 인증 [x] 가 14일 연속 보고됐지만 매일 같은 모양의 긴 목록이라
+    반복이 신호가 되지 못했다 — 반복 자체를 숫자로 만든다. 상태가 깨져도 streak=1 로 시작할 뿐."""
+    today = datetime.now().date()
+    prev, new = _read_json(STREAK_STATE), {}
+    for s in sections:
+        for it in s.items:
+            if it["status"] != "fail":
+                continue
+            key = f"{s.key}:{it['label']}"
+            days = 1
+            p = prev.get(key)
+            if p:
+                try:
+                    gap = (today - datetime.fromisoformat(p["last"]).date()).days
+                    if gap == 0:
+                        days = int(p["days"])                  # 같은 날 재실행(HEALTH_FORCE)
+                    elif 0 < gap <= STREAK_GAP_DAYS:
+                        days = int(p["days"]) + gap
+                except (KeyError, ValueError):
+                    pass
+            new[key] = {"days": days, "last": today.isoformat()}
+            it["streak"] = days
+    _write_json(STREAK_STATE, new)
 
 
 # ── 점검 1. 게이트웨이 (OpenClaw 컨테이너) ──────────────────────────────────────
@@ -188,35 +252,46 @@ def check_auth() -> Section:
                 d = days_left(exp)
                 if d <= 0:
                     return "fail", "만료됨 — claude auth login 필요"
-                return ("warn" if d < REFRESH_WARN_DAYS else "ok"), f"{d:.0f}일 남음"
+                if d < REFRESH_WARN_DAYS:
+                    # warn 은 3일 연속 보고돼도 [긴급] 으로 안 올라간다 — 임박은 행동이 필요하므로 fail.
+                    until = datetime.fromtimestamp(exp / 1000).strftime("%m-%d %H:%M")
+                    return "fail", f"곧 만료({d:.1f}일 남음, {until}) — 만료 전 claude auth login"
+                return "ok", f"{d:.0f}일 남음"
 
             # 필드 자체가 없는 자격 포맷(2026-08-05 실측: 컨테이너 claude 2.1.181 — 호스트
-            # 2.1.222 는 기록함)에서는 2026-09-18 부터 refreshToken **값**의 해시 변화로
-            # 재로그인 시점을 스스로 추적한다. 평소 액세스 토큰 자동갱신은 accessToken·
-            # expiresAt 만 바꾸고 refreshToken 은 그대로라, 해시가 바뀐 순간만 진짜 재로그인이다
-            # — 자격 파일 mtime(옛 폴백)은 액세스 토큰 갱신마다 움직여 신호가 안 된다.
+            # 2.1.222 는 기록함)에서는 **로그인 시점을 직접 기록**해 센다(claude-login.state).
+            # ⚠️ 2026-09-18~10-16 에 쓰던 "refreshToken 값의 해시 변화 = 재로그인" 추적은 틀렸다 —
+            # 이 CLI 는 refresh token 값 자체가 매일 바뀌어 매일 "첫 추적 ~30일 남음" 으로
+            # 초기화됐고, 그래서 10-02 만료(로그인 28일 뒤) 전에 경고가 단 한 번도 못 울렸다.
+            # 로그인 시점이 바뀌는 경우는 세 가지뿐이다:
+            #   ① 최초(상태 없음)  ② 빈 토큰 상태에서 복구된 것을 관측  ③ 수동 `--mark-login`
+            # (자발적 사전 재로그인은 ③ 로 알려야 한다 — 파일만으론 로그인과 평소 갱신을 구별 못 함.)
+            now = time.time()
+            st = _read_json(LOGIN_STATE)
             token = _load().get("refreshToken", "")
             if not token:
-                age_h = (time.time() - creds.stat().st_mtime) / 3600
+                st["was_empty"] = True
+                _write_json(LOGIN_STATE, st)
+                age_h = (now - creds.stat().st_mtime) / 3600
                 return "warn", f"만료일 정보 없음, 추적 불가(토큰 비어있음) (자격 파일 {age_h:.1f}시간 전 갱신)"
 
-            h = hashlib.sha256(token.encode()).hexdigest()
-            now = time.time()
-            try:
-                state = json.loads(REFRESH_TRACK_STATE.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                state = {}
-            bootstrapped = state.get("hash") != h
-            if bootstrapped:
-                state = {"hash": h, "issued_at": now}
-                REFRESH_TRACK_STATE.parent.mkdir(parents=True, exist_ok=True)
-                REFRESH_TRACK_STATE.write_text(json.dumps(state), encoding="utf-8")
+            note = ""
+            if not st.get("login_at"):
+                st = {"login_at": now}
+                note = " (첫 추적 — 로그인 시점 미상, 지금부터 카운트. 정확히 하려면 --mark-login)"
+            elif st.get("was_empty"):
+                st = {"login_at": now}
+                note = " (빈 토큰에서 복구 관측 — 재로그인 시점으로 기록)"
+            _write_json(LOGIN_STATE, st)
 
-            d = REFRESH_TOKEN_ASSUMED_DAYS - (now - state["issued_at"]) / 86400
-            note = " (첫 추적 — 발급일 미상, 지금부터 카운트)" if bootstrapped else ""
+            d = REFRESH_TOKEN_ASSUMED_DAYS - (now - st["login_at"]) / 86400
             if d <= 0:
-                return "fail", f"만료 추정(해시추적) — claude auth login 필요{note}"
-            return ("warn" if d < REFRESH_WARN_DAYS else "ok"), f"~{d:.0f}일 남음(해시추적){note}"
+                return "fail", f"만료 추정({REFRESH_TOKEN_ASSUMED_DAYS}일 경과) — claude auth login 필요{note}"
+            # 경고(warn)로는 3일 연속 보고돼도 [긴급] 으로 안 올라간다 — 곧 만료는 행동이 필요한
+            # 상태이므로 임박 구간은 fail 로 둔다(에스컬레이션 대상).
+            if d < REFRESH_WARN_DAYS:
+                return "fail", f"곧 만료 추정(~{d:.0f}일 남음) — 만료 전 claude auth login{note}"
+            return "ok", f"~{d:.0f}일 남음(로그인 기록 기준){note}"
 
         s.probe("refresh token 유효기간", _refresh_exp)
 
@@ -307,7 +382,13 @@ def check_cron() -> Section:
         elif status in ("running", "unknown"):
             s.add("warn", f"cron: {name}", f"마지막 상태 {status}")
         else:
-            s.add("fail", f"cron: {name}", f"마지막 상태 {status}")
+            # 몇 번째 연속 실패인지·왜인지를 같이 — "마지막 상태 error" 만으로는 1회 실패인지
+            # 2주째인지 구별이 안 된다(2026-10 poll 잡 316회 연속 401).
+            st = j.get("state") or {}
+            ce = st.get("consecutiveErrors") or 0
+            le = " ".join(str(st.get("lastError") or "").split())[:90]
+            extra = (f" · {ce}회 연속 실패" if ce > 1 else "") + (f" · {le}" if le else "")
+            s.add("fail", f"cron: {name}", f"마지막 상태 {status}{extra}")
 
         # Next 가 과거면 게이트웨이 비정상 종료로 run 이 running 에 박힌 것 — 틱이 영영 스킵된다.
         nxt = j.get("nextRunAt") or j.get("next") or 0
@@ -470,6 +551,42 @@ def check_data() -> Section:
 
     s.probe("인박스 적체", _backlog)
 
+    def _gmail_backlog():
+        # Gmail 라벨(기본 "1 저장")에 남은 스레드. 캡처가 정상이면 30분 안에 비므로 하루 넘게
+        # 남은 건 정체다. 라벨 부착 시각은 알 수 없어 "처음 관측한 시각"으로 나이를 센다 —
+        # 메일 날짜(2024 소급 작업 등)는 적체 나이가 아니다.
+        try:
+            p = subprocess.run(
+                ["gog", "gmail", "search", f'label:"{GMAIL_LABEL}"',
+                 "--account", GOG_ACCOUNT, "--max", "500", "--json"],
+                capture_output=True, text=True, env=host_gog_env(), timeout=60)
+        except Exception as e:
+            return "warn", f"조회 불가: {e}"
+        if p.returncode != 0:
+            return "warn", f"조회 불가: {((p.stderr or '') + (p.stdout or '')).strip()[:100]}"
+        try:
+            data = json.loads(p.stdout)
+        except json.JSONDecodeError:
+            return "warn", "조회 결과 파싱 실패"
+        rows = (data.get("threads") or data.get("messages") or []) if isinstance(data, dict) else data
+        ids = {r.get("threadId") or r.get("id") for r in rows if isinstance(r, dict)} - {None}
+
+        now = time.time()
+        prev = _read_json(GMAIL_BACKLOG_STATE)
+        seen = {t: prev.get(t, now) for t in ids}          # 빠진 건 자동 정리
+        _write_json(GMAIL_BACKLOG_STATE, seen)
+
+        stuck = [t for t, ts in seen.items() if (now - ts) / 3600 >= GMAIL_STUCK_HOURS]
+        if stuck:
+            oldest = max((now - seen[t]) / 3600 for t in stuck)
+            return "fail", (f"{len(stuck)}건이 하루 이상 정체(전체 {len(ids)}건, 최장 약 {oldest / 24:.0f}일) "
+                            f"— 게이트웨이 poll 잡·자격 확인")
+        if len(ids) > GMAIL_BACKLOG_WARN:
+            return "warn", f"{len(ids)}건 대기 중(드레인 진행 확인 필요 — 임계 {GMAIL_BACKLOG_WARN})"
+        return "ok", f"{len(ids)}건"
+
+    s.probe(f"Gmail '{GMAIL_LABEL}' 적체", _gmail_backlog)
+
     def _fresh():
         knowledge = VAULT / "knowledge"
         if not knowledge.is_dir():
@@ -507,7 +624,14 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--summary", help="결과 JSON 을 쓸 경로")
     ap.add_argument("--json", action="store_true", help="stdout 에 JSON 만 출력")
+    ap.add_argument("--mark-login", action="store_true",
+                    help="게이트웨이 Claude 재로그인 직후 1회 — 지금을 로그인 시점으로 기록하고 종료")
     args = ap.parse_args()
+
+    if args.mark_login:
+        _write_json(LOGIN_STATE, {"login_at": time.time()})
+        print(f"로그인 시점 기록: {LOGIN_STATE} ({datetime.now().isoformat(timespec='seconds')})")
+        return 0
 
     sections = [
         check_gateway(),
@@ -518,6 +642,8 @@ def main() -> int:
         check_data(),
         check_sync(),
     ]
+
+    apply_streaks(sections)
 
     passed = sum(1 for s in sections for i in s.items if i["status"] == "ok")
     warned = sum(1 for s in sections for i in s.items if i["status"] == "warn")
