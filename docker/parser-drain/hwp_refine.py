@@ -343,18 +343,48 @@ def _docx_images(docx, parse_dir):
         return []
 
 
+_LAST_ERR = {"why": ""}        # 마지막 실패 단계·사유 — .parse-error 마커에 남긴다(2026-10-17)
+
+
+def _repack_docx(docx):
+    """LibreOffice(H2Orestart)가 쓴 docx 를 zipfile 로 한 번 다시 묶는다 (2026-10-17).
+
+    실측: 2022-04-12 과기부 결과보고서 hwp — soffice 변환은 성공(2.1MB docx)했는데 pandoc 이
+    `couldn't unpack docx container: Content size mismatch in data descriptor record` 로 거부해
+    본문 '' → 빈 .parse-error. 파일은 정상(암호·배포용·DRM 아님, python zipfile·hwp-mcp 모두 읽힘).
+    LibreOffice 의 zip 데이터 디스크립터 쓰기와 pandoc 의 엄격한 zip 리더가 만난 호환성 문제라
+    같은 내용을 다시 묶기만 하면 pandoc 이 읽는다(5,968자). 멤버·순서·내용 무변경.
+    """
+    repacked = docx[:-5] + "_repacked.docx"
+    with zipfile.ZipFile(docx) as zi, zipfile.ZipFile(repacked, "w", zipfile.ZIP_DEFLATED) as zo:
+        for i in zi.infolist():
+            zo.writestr(i.filename, zi.read(i.filename))
+    return repacked
+
+
 def parse_hwp(path, tmp):
-    """hwp → docx(soffice) → gfm(pandoc) → clean_md. 실패 시 ''."""
-    subprocess.run(["soffice", "--headless", "--convert-to", "docx", "--outdir", tmp, path],
-                   check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=600)
+    """hwp → docx(soffice) → [zip 재압축] → gfm(pandoc) → clean_md. 실패 시 '' + _LAST_ERR."""
+    _LAST_ERR["why"] = ""
+    so = subprocess.run(["soffice", "--headless", "--convert-to", "docx", "--outdir", tmp, path],
+                        check=False, capture_output=True, text=True, timeout=600)
     stem = os.path.splitext(os.path.basename(path))[0]
     docx = os.path.join(tmp, stem + ".docx")
     if not os.path.exists(docx) or os.path.getsize(docx) < 200:
+        tail = (so.stderr or so.stdout or "").strip().splitlines()
+        _LAST_ERR["why"] = "soffice→docx 산출 없음: " + (tail[-1] if tail else f"rc={so.returncode}")[:200]
         return ""
     _IMG["docx"] = _docx_images(docx, path + "_parse")
-    raw = subprocess.run(["pandoc", "-f", "docx", "-t", "gfm", "--wrap=none", docx],
-                         capture_output=True, text=True).stdout
-    return clean_md(raw)
+    try:
+        docx = _repack_docx(docx)
+    except Exception as e:  # noqa: BLE001 — 재압축 실패면 원본 docx 로 그냥 시도
+        _LAST_ERR["why"] = f"docx 재압축 실패(원본으로 진행): {str(e)[:120]}"
+    pd = subprocess.run(["pandoc", "-f", "docx", "-t", "gfm", "--wrap=none", docx],
+                        capture_output=True, text=True)
+    body = clean_md(pd.stdout)
+    if not body:
+        err = (pd.stderr or "").strip().splitlines()
+        _LAST_ERR["why"] = "pandoc docx→gfm 실패: " + (err[-1] if err else f"rc={pd.returncode}, 본문 0자")[:200]
+    return body
 
 
 def relink_images(body):
@@ -430,9 +460,15 @@ def process(path, tmp):
         body = parse_hwp(path, tmp)
         engine = "hwp-libreoffice-pandoc"
     if not body:
-        open(os.path.join(parse_dir, ".parse-error"), "w").close()
         reason = ("HWP3 raw-deflate/Johab 실패" if engine == "hwp3-rawdeflate-johab"
                   else "본문 추출 실패(soffice/pandoc/OWPML 모두)")
+        if _LAST_ERR["why"]:
+            reason += " — " + _LAST_ERR["why"]
+        # 사유 있는 마커 (parser-drain mark_error 와 같은 형식, 2026-10-17). 예전엔 0바이트 마커라
+        # brainify 인라인 자가치유 경로로 불렸을 때 "왜"가 어디에도 안 남았다.
+        with open(os.path.join(parse_dir, ".parse-error"), "w", encoding="utf-8") as mk:
+            mk.write(f"ts: {datetime.datetime.now().isoformat(timespec='seconds')}\nhost: {HOST}\n"
+                     f"stage: hwp\nsource: {path}\nreason: {reason}\n")
         return False, reason
     if engine == "owpml":
         n_img = len(_IMG["map"])

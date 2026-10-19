@@ -6,6 +6,8 @@
 
 ## 구성
 - `parser-drain.sh` — 드레인 본체. **PDF=듀얼+diff**(docling.json+mineru.json+diff.json), **비-PDF=docling**(mineru는 PDF 전용). concurrency=1(systemd 단일인스턴스 + flock + 순차루프), 멱등(PDF=diff.json/비PDF=docling.json 있으면 skip, 부분진행 재사용), atomic(tmp→rename), warm 데몬(모델 init amortize), 엔진당 timeout 가드(`ENGINE_TIMEOUT`, MinerU hang 시 그 파일만 실패·계속), watchdog 밖.
+- 호스트-측 보조 추출기 — `hwp_refine.py`(hwp/hwpx) · `xls_refine.py` · `xlsx_refine.py`(docling 폴백) · `rtf_refine.py` · `audio_refine.py`(whisper) · **`zip_refine.py`(2026-10-16)**: zip 을 `<zip>_parse/members/` 로 안전 추출(경로 탈출·__MACOSX 제외, 500개·500MB 상한)하고 구성원을 포맷별 경로(호스트 스크립트 또는 컨테이너 docling)로 파싱한 뒤 `<zip>_parse/refined.md` 하나로 집계. 구성원은 `_parse/` 아래라 다른 루프가 이중 파싱하지 않는다. 계기: RAS6097 Country Reports.zip(14개국 docx)이 미지원이라 영구 `parse_confidence:low` 플래그로 남았던 사고.
+- 컨테이너 `parse-docling` 의 OCR 언어 = **RapidOCR 한국어**(`PARSER_DOCLING_OCR_LANG=korean` 기본, 2026-10-16). docling 기본값(chinese)은 스캔 한글 PDF 에서 한자 쓰레기를 냈다(FutureChem 계약서: docling 한글 64자 vs mineru 13,609자 → 한국어 모델로 4,102자). mineru(`-l korean`)가 여전히 우세하므로 refine 의 한글 비율 게이트가 최종 안전망이다. 한국어 rec 모델은 Dockerfile 이 빌드 시 미리 받는다.
 - `parser-drain.service` — oneshot, `parser-drain.sh` 실행.
 - `parser-drain.timer` — 10분 폴링(도는 서비스는 또 안 띄움).
 

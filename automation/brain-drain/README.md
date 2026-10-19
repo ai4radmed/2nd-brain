@@ -43,10 +43,12 @@ systemctl --user enable --now brain-drain.timer
 | `CAP_GLOBAL` | `5.00` | 드레인 1회 누적 $ 상한(초과 시 중단) |
 | `CLAUDE_TIMEOUT` | `600` | claude 호출당 초 |
 | `BRAIN_DRAIN_MODEL` | `claude-opus-4-7` | 모델 |
+| `USE_GEMINI_FIRST` | `0` | `1` 이면 Gemini CLI 를 먼저 시도하고 실패 시 Claude. **2026-10-16 기본 0** — Gemini 개인 티어는 2026-08-06 부터 `IneligibleTierError` 로 매번 실패해 왔고(615회), 그 경로가 실제로 한 일은 diverge 를 비전검증 없이 docling 으로 승격하는 지름길뿐이었다(제거됨). 보고서 엔진 라벨도 모델명이 아니라 경로명("Claude Code 헤드리스")으로 바뀜. |
 
 ## 경계
 
 - **정본 vault = WSL2 ext4 `~/projects/2nd-brain-vault`**(git 아님·SyncThing) — commit 안 함.
-- refine `match/single` 은 promote(LLM 0), `diverge` 만 claude. brainify 는 항상 claude(판단).
+- refine `match/single` 은 promote(LLM 0), `diverge` 만 claude. 단 diverge 라도 **한글 비율 게이트**(docling 한글 ×5 < mineru 한글, 스캔 한글 PDF 의 OCR 언어 불일치)가 찍히면 `scan` 이 `action: promote` 로 내려 mineru 를 결정형 채택(2026-10-16, 49건 소급). brainify 는 항상 claude(판단).
+- renote(Phase C)는 `renoted:` 이후 refined.md 가 바뀐 노트만 다시 집는다(루프 가드, 2026-10-16 — 한 노트 11회·≈$4 사고). refined 가 깨졌으면 플래그가 아니라 refined 를 고친다(`refine.py promote --force`).
 - 품질 보증은 **주간 감사**(`para_review: pending`·`parse_confidence|refine_confidence: low` 플래그) — `automation-review-policy`.
 - 비용 폭주 방지: 항목당 + 드레인당 2단 상한. 처음엔 timer enable 전에 `start` 로 1회 실측 권장.

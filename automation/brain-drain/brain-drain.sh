@@ -40,7 +40,8 @@ OPENCLAW_JSON="${OPENCLAW_JSON:-$HOME/.openclaw/openclaw.json}"
 HEADLESS_DIRECTIVE='무인 cron 드레인에서 헤드리스로 실행 중. 사용자가 없으니 절대 질문하지 말 것.
 automate-first/weekly-audit 정책: 모호하면 묻지 말고 낙관 배치 후 플래그(para_review: pending /
 parse_confidence|refine_confidence: low). 이미 처리된 항목(already_brainified / refined.md 존재)은 skip.
-반드시 helper(refine.py/brainify.py)로 commit 하거나, 사유를 남기고 skip 하며 끝낼 것.'
+반드시 helper(refine.py/brainify.py)로 commit 하거나, 사유를 남기고 skip 하며 끝낼 것.
+인자로 받은 그 1건만 처리할 것 — scan 에 보이는 다른 항목은 건드리지 말 것(commit 이 기계적으로 거부함).'
 
 # ── 모드: --alert-only = 파싱·편입 없이 **현재 포기 목록만** 재발송 ──
 # 원칙: 모든 알림은 자동발화와 1회성 호출 양쪽이 된다(brain-system README §알림 수동 발사).
@@ -151,17 +152,13 @@ gemini_run(){
   fi
   log "gemini fallback start: $prompt"
 
-  # 만약 /refine 헤드리스 요청인 경우 promote 먼저 시도
-  if [[ "$prompt" == *"/refine"* ]]; then
-    local pdir
-    pdir="$(echo "$prompt" | sed -n 's/.*\/refine --headless "\([^"]*\)".*/\1/p')"
-    if [ -n "$pdir" ]; then
-      if python3 "$REFINE_PY" promote "$pdir" >>"$LOG" 2>&1; then
-        log "gemini fallback (promote): ok for $pdir"
-        return 0
-      fi
-    fi
-  fi
+  # ★ 예전엔 여기서 /refine 요청을 받으면 **verdict 와 무관하게 `refine.py promote`(docling 무조건
+  #   채택)** 를 먼저 돌렸다(2026-08-05 도입). Phase R 이 /refine 으로 넘기는 건 diverge 뿐이라, 이 지름길은
+  #   "두 파서가 갈린 문서를 비전검증 없이 docling 으로 확정"하는 것과 같았다. Gemini CLI 는 도입 다음 날
+  #   (2026-08-06, IneligibleTierError)부터 죽어 있었으므로 이 지름길이 Gemini 경로가 한 일의 전부였다 —
+  #   374건이 그렇게 승격됐고, 그중 스캔 한글 PDF 49건은 docling 이 OCR 언어 불일치로 한자 쓰레기를 낸 쪽을
+  #   채택했다(2026-10-16 FutureChem 계약서로 발견). diverge 는 LLM 비전검증(Claude) 또는 refine.py 의
+  #   결정형 한글 비율 게이트(scan 이 action=promote 로 내려줌)만 통과시킨다. 지름길 제거.
 
   local skill_instruction=""
   if [[ "$prompt" == *"/refine"* ]]; then
@@ -271,9 +268,13 @@ PY
   log "claude ok (\$$cost, ${turns}t, run=\$$SPENT): $prompt"; return 0
 }
 
-# 무인 드레인 실행 엔진 (Gemini 우선 모드 = 토큰 소모 0)
-# USE_GEMINI_FIRST=1 (기본값) -> Gemini CLI 우선 1차 시도 후 필요시 Claude fallback
-USE_GEMINI_FIRST="${USE_GEMINI_FIRST:-1}"
+# 무인 드레인 실행 엔진
+# USE_GEMINI_FIRST=1 -> Gemini CLI 우선 1차 시도 후 필요시 Claude fallback
+# ★ 기본값 0 (2026-10-16). Gemini CLI 개인 티어는 2026-08-06 부터 `IneligibleTierError`(Antigravity 로
+#   이전 요구)로 **매 호출 실패**해 왔다(로그 615회) — "Gemini 우선" 은 실제로는 Claude 로 가는 우회로였고,
+#   보고서 머리글만 "Gemini 2.5 Flash" 로 거짓을 썼다. 다시 켜려면 gemini 바이너리가 실제로 응답하는지
+#   (`gemini -p "ping"`) 확인하고 1 로.
+USE_GEMINI_FIRST="${USE_GEMINI_FIRST:-0}"
 
 engine_run() {
   local prompt="$1" cap="$2"
@@ -341,7 +342,12 @@ while IFS= read -r item; do
   if fail_giveup "$item"; then
     log "skip(포기 $(fail_count "$item")회 실패): $item"; continue
   fi
+  # ★ 담당 항목을 helper 에 못박는다 (2026-10-19): brainify.py commit 은 이 값과 다른 항목을 거부한다.
+  #   SKILL 의 "턴당 1항목" 만으론 안 지켜졌다 — 2026-10-01 한 세션이 scan 에 보인 4건을 전부 커밋했고
+  #   그중 parser-drain 이 파싱 중이던 xlsx 가 폴더째 옮겨져 유령 실패 마커가 남았다.
+  export BRAINIFY_HEADLESS_ITEM="$item"
   engine_run "/brainify --headless \"$item\"" "$CAP_BRAINIFY" && rc=0 || rc=$?
+  unset BRAINIFY_HEADLESS_ITEM
   # 사후 커밋 검증(2026-07-16): false-fail '⚠ 실패' 텔레그램 오보고 억제.
   # ① 인박스에서 사라짐(이동 커밋) ② 남아 있어도 scan 이 already_brainified 판정(노트 커밋)
   # — 어느 쪽이든 작업은 끝났고 종료만 비정상이었던 것 → 완료로 재집계.
@@ -377,6 +383,8 @@ d=json.loads('''$brainify_json''' or '{}')
 for it in d.get("items",[]):
     if it.get("already_brainified"):
         continue
+    if it.get("parsing"):
+        continue                      # parser-drain 이 지금 파싱 중(_parse/*.tmp + 잠금) — 다음 틱에 refined 와 함께 (2026-10-19)
     if it["item"].lower().endswith(AUDIO):
         continue                      # 선별 게이트 — 대화형 brainify 전용
     print(it["item"])
@@ -499,8 +507,10 @@ if [ "$ACTIVITY" -gt 0 ]; then
   if [ -n "$FAIL_REASON" ]; then
     EXTRA_ARGS+=(--fail-reason "$FAIL_REASON")
   fi
-  ENGINE_LABEL="Gemini 2.5 Flash"
-  [ "${USE_GEMINI_FIRST:-1}" = "0" ] && ENGINE_LABEL="Claude 3.5 Sonnet"
+  # 보고서 머리글의 엔진 라벨은 **실제 경로**를 적는다. 모델명을 박아 두면(옛 "Gemini 2.5 Flash" /
+  # "Claude 3.5 Sonnet") 둘 다 사실과 달라진다 — claude -p 는 로그인 계정의 기본 모델을 쓴다.
+  ENGINE_LABEL="Claude Code 헤드리스"
+  [ "${USE_GEMINI_FIRST:-0}" = "1" ] && ENGINE_LABEL="Gemini 우선 → Claude 폴백"
   BRAINIFY_PY="$BRAINIFY_PY" \
   BRAIN_DRAIN_TG_TOKEN="${BRAIN_DRAIN_TG_TOKEN:-}" BRAIN_DRAIN_TG_CHAT="$TG_CHAT" \
   OPENCLAW_JSON="$OPENCLAW_JSON" \

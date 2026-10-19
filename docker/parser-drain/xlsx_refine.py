@@ -159,7 +159,10 @@ def main(argv: list[str]) -> int:
         else:
             fail += 1
             print(f"  ✗ {p.name}: {msg}", file=sys.stderr)
-            (p.parent / (p.name + "_parse")).mkdir(parents=True, exist_ok=True)
+            # 마커를 받을 _parse/ 는 **원본이 있을 때만** 만든다 — 원본이 파싱 중 옮겨진 뒤 여기서
+            # mkdir -p 하면 지워진 인박스 폴더가 되살아나 유령 마커의 집이 된다(2026-10-01 실측).
+            if p.exists():
+                (p.parent / (p.name + "_parse")).mkdir(parents=True, exist_ok=True)
     print(f"[xlsx_refine] 성공 {ok} / 실패 {fail}")
     return 0 if fail == 0 else 1
 

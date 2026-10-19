@@ -55,6 +55,11 @@ RUN pip install --no-cache-dir \
 # own package directory (/usr/local/lib/.../rapidocr/models/) which is root-owned,
 # and ephemeral `--rm` runs would re-download every invocation otherwise.
 RUN python3 -c "from rapidocr import RapidOCR; RapidOCR()" 2>&1 | tail -5
+# Korean recognition model too (2026-10-16): entrypoint parse-docling runs RapidOCR with
+# Rec.lang_type=KOREAN by default (PARSER_DOCLING_OCR_LANG). Without this warm-up the first
+# scanned-Korean PDF at runtime would try to download into the root-owned package dir as
+# `user` and fail — the chinese default produced CJK garbage on Korean scans (49 vault cases).
+RUN python3 -c "from rapidocr import RapidOCR, LangRec; RapidOCR(params={'Rec.lang_type': LangRec.KOREAN})" 2>&1 | tail -5
 
 # CLI entrypoint installed system-wide.
 COPY entrypoint.py /usr/local/bin/brain-pdf

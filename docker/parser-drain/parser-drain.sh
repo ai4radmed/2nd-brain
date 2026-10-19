@@ -69,6 +69,17 @@ run_to(){
 # "왜 실패했나"를 알 수 없어 하나씩 재현해야 했고(2026-08-06), 타임아웃·암호화·인프라 사고가
 # 전부 같은 얼굴이었다. 사유 한 줄이 그 재현 작업을 통째로 없앤다.
 mark_error(){
+  # ★ 원본이 사라졌으면 마커를 쓰지 않는다 (2026-10-19). 루프 머리의 `[ -f "$f" ]` 는 파싱 *전*만 본다 —
+  #   9분짜리 docling 도중 brainify 가 폴더째 옮기면 엔진은 rc=0 인데 출력 경로가 없어 "빈 출력" 으로
+  #   떨어지고, 폴백(xlsx_refine)의 mkdir 이 지워진 폴더를 되살려 그 안에 마커가 남았다(2026-10-01
+  #   EM preliminary 건 — 자료는 멀쩡히 편입됐는데 헬스체크가 18일간 '추출 실패' 로 셌다).
+  #   실패가 아니라 *경합*이므로 기록할 것은 로그 한 줄이고, 부활한 빈 껍데기는 걷어낸다.
+  if [ ! -e "$3" ]; then
+    log "원본 사라짐(파싱 중 이동·삭제) — 마커 생략: $3"
+    rmdir "$1" 2>/dev/null || true
+    case "$1" in "$INBOX"/*) rmdir "$(dirname "$1")" 2>/dev/null || true;; esac
+    return 0
+  fi
   printf 'ts: %s\nhost: %s\nstage: %s\nsource: %s\nreason: %s\n' \
     "$(date -Is)" "$(hostname)" "$2" "$3" "${LAST_ERR:-(사유 미상)}" >"$1/.parse-error" 2>/dev/null || true
   NEWFAIL+=("$2|$3|${LAST_ERR:-(사유 미상)}")   # 이번 런의 신규 실패 — 끝에서 한 번에 알린다
@@ -176,6 +187,22 @@ n=0
 # ★ 인박스 우선: 후보 목록을 00_inbox 먼저 내보낸다. 신규 유입이 백로그 뒤에 줄서지 않게.
 SOURCES_ROOT="$SB_DATA/sources"
 MAX_PER_RUN="${PARSER_DRAIN_MAX_PER_RUN:-5}"     # 0 = 무제한(백로그 몰아치기용 수동 실행)
+
+# ── 유령 마커 청소 (2026-10-19 신설) ─────────────────────────────────────────────
+# `.parse-error` 인데 **원본이 없는** 것은 실패가 아니라 잔재다 — 파싱 도중 원본이 옮겨지거나(위 mark_error
+# 주석의 경합) 지워진 뒤 남은 껍데기. 헬스체크(5-28)는 마커만 세므로 이런 게 하나 있으면 매일 경고가 선다.
+# 원본 경로는 `_parse` 접미를 뗀 같은 자리로 **구조적으로** 정해지므로 마커 안의 host 절대경로를 믿지 않는다
+# (다른 PC 에서 쓴 마커도 같은 규칙으로 판정). 빈 `_parse/` 와, 인박스 안이면 빈 상위 폴더까지 걷어낸다.
+nghost=0
+while IFS= read -r m; do
+  [ -n "$m" ] || continue
+  gd="$(dirname "$m")"; gsrc="${gd%_parse}"
+  [ -e "$gsrc" ] && continue
+  rm -f "$m"; rmdir "$gd" 2>/dev/null || true
+  case "$gd" in "$INBOX"/*) rmdir "$(dirname "$gd")" 2>/dev/null || true;; esac
+  log "ghost(.parse-error, 원본 없음) 제거: $gd"; nghost=$((nghost+1))
+done < <(find "$SOURCES_ROOT" -name .parse-error 2>/dev/null)
+[ "$nghost" -gt 0 ] && log "ghost 청소: ${nghost}건"
 bn=0                                             # 백로그(인박스 밖) 처리 수 — 캡은 이것만 센다
 
 # ★ 캡은 **백로그에만** 건다. 인박스는 캡과 무관하게 끝까지 비운다 —
@@ -368,6 +395,31 @@ while IFS= read -r f; do
     log "FAIL rtf(host): $f"; mark_error "$out" rtf "$f"
   fi
 done < <(candidates rtf)
+
+# ── ZIP(압축 첨부): 풀어서 구성원 파싱 → <zip>_parse/refined.md 로 집계 (2026-10-16 신설) ──
+# 근거: 화이트리스트에 zip 이 없어 `Country Reports.zip`(RAS6097 14개국 docx) 은 `_parse` 가 영영 안 생겼고,
+#   brainify 가 "첨부는 있는데 파싱이 없다"로 low 를 찍어 renote-scan 이 no_source 로 영구 대기 →
+#   무인 드레인 보고가 매 틱 "파싱오류 stub" 으로 셌다(첨부 0건 스레드 사고의 zip 판). 내용을 버리는
+#   n/a 플래그 대신 **풀어서 파싱**한다. 구성원은 `<zip>_parse/members/` 아래라 candidates() 의 `_parse/`
+#   제외에 걸려 다른 루프가 이중 파싱하지 않는다. 컨테이너가 필요한 구성원(pdf·docx·pptx·xlsx)은
+#   zip_refine 이 `docker exec` 로 직접 부른다 — 이 루프는 컨테이너가 떠 있는 동안 돌아야 한다.
+ZIP_REFINE="$REPO/docker/parser-drain/zip_refine.py"
+while IFS= read -r f; do
+  backlog_stop "$f" && { log "cap($MAX_PER_RUN) 도달 — zip 백로그 중단"; break; }
+  [ -f "$f" ] || { log "원본 사라짐(다른 단계가 이동·삭제) — skip: $f"; continue; }
+  out="${f}_parse"
+  [ -s "$out/refined.md" ] && continue           # 멱등
+  skip_bulk "$out" && { nbulk=$((nbulk+1)); continue; }
+  skip_failed "$out" && { ferr=$((ferr+1)); continue; }
+  log "parse(zip,host+container): $f"; attempt_one "$f"
+  if SB_DATA="$SB_DATA" CMNT="$CMNT" PARSER_CLI="$PARSER_CLI" ENGINE_TIMEOUT="$ENGINE_TIMEOUT" \
+       python3 "$ZIP_REFINE" "$f" >>"$LOG" 2>&1; then
+    log "ok(zip): $f"; clear_error "$out"; count_one "$f"
+  else
+    LAST_ERR="$(tail -3 "$LOG" | tr "\n" " " | tail -c 300)"
+    log "FAIL zip: $f"; mkdir -p "$out"; mark_error "$out" zip "$f"
+  fi
+done < <(candidates zip)
 
 # ── PPT/DOC(구형 바이너리 Office): 호스트 soffice→PDF 변환 후 PDF 파이프라인 재사용 ──
 # 근거(2026-09-17 KIRAMS selffwd ppt 실측): candidates() 화이트리스트에 .ppt/.doc 가 애초에

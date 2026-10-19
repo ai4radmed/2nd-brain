@@ -50,6 +50,42 @@ def _to_supported(path: str):
     return out, f"{ext.lstrip('.')}→{target}→docling"
 
 
+def _pdf_format_options() -> dict:
+    """Docling PDF 파이프라인의 OCR 언어 설정 (2026-10-16).
+
+    `DocumentConverter()` 기본값은 RapidOCR **chinese** 모델 세트다(docling 2.96 의 내장 세트는
+    chinese/english 둘뿐). 스캔 한글 PDF(복합기 PDF·증명서·등기부등본·계약서)에서 docling 은 한자
+    쓰레기(`Yh品lok昆民`)를 냈고 mineru(`-l korean`)만 한글을 복원했다 — 실측 FutureChem 2015 계약서
+    13p: docling 한글 64자 vs mineru 13,609자. 그런데 refine 이 docling 을 채택해 refined.md 가 쓰레기가
+    된 사고가 vault 에 49건이었다.
+
+    RapidOCR 3.x 는 `Rec.lang_type=LangRec.KOREAN` 으로 한국어 인식 모델을 쓴다. docling 이 Rec.model_path
+    를 chinese 모델로 박아 넘기므로 그 둘을 None 으로 비워야 lang_type 이 먹는다(같은 PDF 실측: 한글
+    4,102자 — mineru 엔 못 미치나 쓰레기는 아니다; 그래서 refine 의 한글 비율 게이트는 그대로 둔다).
+    한국어 rec 모델은 첫 사용 때 내려받으므로 Dockerfile 이 빌드 시 미리 받아 둔다(user 권한으론 패키지
+    디렉토리에 못 쓴다).
+
+    PARSER_DOCLING_OCR_LANG: korean(기본) | chinese | english — 머신·사용자별 조정용(코드에 박지 않는다).
+    """
+    import os
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
+    from docling.document_converter import PdfFormatOption
+
+    lang = os.environ.get("PARSER_DOCLING_OCR_LANG", "korean").strip().lower()
+    opts = PdfPipelineOptions()
+    if lang == "korean":
+        from rapidocr import LangRec
+        opts.ocr_options = RapidOcrOptions(
+            rapidocr_params={"Rec.lang_type": LangRec.KOREAN, "Rec.model_path": None, "Rec.rec_keys_path": None},
+        )
+    elif lang in ("english", "en"):
+        opts.ocr_options = RapidOcrOptions(lang=["english"])
+    else:
+        opts.ocr_options = RapidOcrOptions()          # chinese (docling 기본)
+    return {InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
+
+
 def parse_docling(pdf_path: str) -> dict:
     # Imports are local so `--version`, `--help`, and other subcommands don't
     # pay the docling import cost (~3s+) or trigger model probes.
@@ -68,7 +104,7 @@ def parse_docling(pdf_path: str) -> dict:
     src, via = _to_supported(pdf_path)  # 비-PDF/비-OOXML 은 LibreOffice 변환
     t0 = time.perf_counter()
     with contextlib.redirect_stdout(sys.stderr):
-        converter = DocumentConverter()
+        converter = DocumentConverter(format_options=_pdf_format_options())
         result = converter.convert(src)
     runtime_sec = time.perf_counter() - t0
 

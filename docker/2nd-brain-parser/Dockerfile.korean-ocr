@@ -1,0 +1,24 @@
+# Dockerfile.korean-ocr — 발행 이미지 위에 얹는 얇은 오버레이 (2026-10-16).
+#
+# 목적: 라이브러리를 한 바이트도 바꾸지 않고(docling 2.96.0 · mineru 3.2.1 · rapidocr 3.8.1 그대로)
+#   ① RapidOCR 한국어 인식 모델 warm-up  ② 새 entrypoint(parse-docling 한국어 OCR 기본) 만 추가한다.
+# 왜 전체 Dockerfile 을 다시 빌드하지 않나: requirements.txt 가 docling 을 핀하지 않아 캐시가 빗나가면
+#   pip 가 최신(실측 2026-10-16: docling 2.140.0)을 받아 **수리와 무관한 드리프트**가 섞인다. 수리는 작게.
+#   전체 Dockerfile 에도 같은 warm-up 줄이 들어 있어 다음 정식 빌드 때 동일 내용이 재현된다.
+#
+#   docker build -f Dockerfile.korean-ocr -t ghcr.io/benkorea/2nd-brain-parser:2026.10.16 .
+#   docker push ghcr.io/benkorea/2nd-brain-parser:2026.10.16   → compose 의 digest 핀 갱신
+ARG BASE=ghcr.io/benkorea/2nd-brain-parser@sha256:96f1919b65f235c0c521c2a613c9137a6ba3bbbfb44e4c11d2c168866c176bad
+FROM ${BASE}
+
+USER root
+# 한국어 rec 모델(korean_PP-OCRv4 계열)은 첫 사용 때 패키지 디렉토리(root 소유)로 내려받는다 —
+# 런타임 사용자(user, uid 1000)로는 못 쓰므로 빌드 시 root 로 받고 읽기 권한을 열어 둔다.
+RUN python3 -c "from rapidocr import RapidOCR, LangRec; RapidOCR(params={'Rec.lang_type': LangRec.KOREAN})" 2>&1 | tail -3 \
+    && python3 -c "import rapidocr, os, subprocess; d=os.path.dirname(rapidocr.__file__); subprocess.run(['chmod','-R','a+rX',d], check=True); print('models dir', d)"
+COPY entrypoint.py /usr/local/bin/brain-pdf
+RUN chmod +x /usr/local/bin/brain-pdf
+
+USER user
+WORKDIR /home/user/work
+CMD ["sleep", "infinity"]

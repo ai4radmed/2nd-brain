@@ -12,7 +12,9 @@
 
 services:
   2nd-brain-parser:
-    image: ${PARSER_IMAGE:-ghcr.io/benkorea/2nd-brain-parser@sha256:96f1919b65f235c0c521c2a613c9137a6ba3bbbfb44e4c11d2c168866c176bad}
+    # 2026.10.16 = 2026.06.24(96f1919b) 위 얇은 오버레이(Dockerfile.korean-ocr): RapidOCR 한국어 모델 warm-up +
+    # parse-docling 한국어 OCR 기본. 라이브러리 동일(docling 2.96.0·mineru 3.2.1·rapidocr 3.8.1).
+    image: ${PARSER_IMAGE:-ghcr.io/benkorea/2nd-brain-parser@sha256:4c997cf3e8c8f043137cea2c52494bb22f1c4d9cd09ce1b2fd53323ac852d125}
     container_name: 2nd-brain-parser
     user: "${UID:-1000}:${GID:-1000}"
     working_dir: /home/user/work
