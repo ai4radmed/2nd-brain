@@ -622,6 +622,9 @@ if [ -x "$AUDIO_VENV/bin/python" ]; then
            "$INBOX"/**/*.amr "$INBOX"/**/*.mp4 "$INBOX"/**/*.mkv \
            "$INBOX"/**/*.webm; do
     [[ "$f" == *_parse/* ]] && continue
+    # `_hold/` 대기실은 이 레인도 건너뛴다 — 다른 루프는 candidates() 가 걸러 주지만 오디오 루프는
+    # 자체 glob 이라 빠져 있었다(2026-10-19 실측: _hold 의 6GB 강의 mp4 가 지시 전에 두 번 전사됨).
+    [[ "$f" == "$INBOX/_hold/"* ]] && continue
     [ -s "${f}_parse/refined.md" ] && continue
     pending+=("$f")
   done
